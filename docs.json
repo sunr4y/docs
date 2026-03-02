@@ -1,7 +1,7 @@
 {
   "$schema": "https://mintlify.com/docs.json",
   "name": "FootyCollect",
-  "theme": "almond",
+  "theme": "mint",
   "colors": {
     "primary": "#0FB2B2",
     "light": "#0FB2B2",
