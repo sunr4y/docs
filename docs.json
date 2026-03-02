@@ -3,15 +3,16 @@
   "name": "FootyCollect",
   "theme": "almond",
   "colors": {
-    "primary": "#008000",
-    "light": "#4CAF50",
-    "dark": "#004d00"
+    "primary": "#0FB2B2",
+    "light": "#0FB2B2",
+    "dark": "#0FB2B2"
   },
   "navbar": {
     "primary": {
       "type": "github",
       "href": "https://github.com/sunr4y/FootyCollect"
-    }
+    },
+    "links": []
   },
   "footer": {
     "socials": {
@@ -135,5 +136,22 @@
         ]
       }
     ]
+  },
+  "description": "Django project to manage your inventory of football memorabilia collection",
+  "logo": {
+    "light": "/images/light_logo_footy_collect.svg",
+    "dark": "/images/main_logo_footy_collect.svg"
+  },
+  "appearance": {
+    "default": "dark"
+  },
+  "background": {
+    "color": {
+      "dark": "#0E1217",
+      "light": "#F2F2F0"
+    }
+  },
+  "fonts": {
+    "family": "Space Grotesk"
   }
 }
