@@ -1,0 +1,508 @@
+---
+title: 'Docker Development Setup'
+description: 'Run FootyCollect with Docker Compose for a complete development environment'
+icon: 'docker'
+---
+
+## Overview
+
+Docker Compose provides a complete FootyCollect development environment with all services pre-configured. This is the recommended setup for most developers.
+
+## Services Included
+
+The Docker Compose setup includes the following services:
+
+| Service | Description | Port | Image |
+|---------|-------------|------|-------|
+| **django** | Django application server | 8000 | footycollect_local_django |
+| **postgres** | PostgreSQL 14+ database | 5432 | footycollect_production_postgres |
+| **redis** | Redis 6 cache and message broker | 6379 | redis:6 |
+| **celeryworker** | Celery background task worker | - | footycollect_local_celeryworker |
+| **celerybeat** | Celery periodic task scheduler | - | footycollect_local_celerybeat |
+| **flower** | Celery monitoring web UI | 5555 | footycollect_local_flower |
+| **mailpit** | Email testing interface | 8025 | axllent/mailpit |
+
+## Prerequisites
+
+Install Docker and Docker Compose:
+
+<Tabs>
+  <Tab title="macOS">
+    Install Docker Desktop:
+    
+    ```bash
+    brew install --cask docker
+    ```
+    
+    Or download from [Docker's website](https://www.docker.com/products/docker-desktop/).
+  </Tab>
+  
+  <Tab title="Linux">
+    Install Docker Engine and Docker Compose:
+    
+    ```bash
+    # Ubuntu/Debian
+    sudo apt-get update
+    sudo apt-get install docker-ce docker-ce-cli containerd.io docker-compose-plugin
+    
+    # Add your user to docker group
+    sudo usermod -aG docker $USER
+    
+    # Log out and back in for group changes to take effect
+    ```
+  </Tab>
+  
+  <Tab title="Windows">
+    Install Docker Desktop from [Docker's website](https://www.docker.com/products/docker-desktop/).
+    
+    Ensure WSL 2 is enabled for better performance.
+  </Tab>
+</Tabs>
+
+## Quick Start
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/sunr4y/FootyCollect.git
+    cd FootyCollect/footycollect
+    ```
+  </Step>
+
+  <Step title="Configure environment files">
+    Create environment configuration files in `.envs/.local/`:
+    
+    **Django environment** (`.envs/.local/.django`):
+    
+    ```bash
+    # Django Settings
+    DJANGO_SETTINGS_MODULE=config.settings.local
+    DJANGO_SECRET_KEY=local-development-secret-key-change-in-production
+    DJANGO_DEBUG=True
+    DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0
+    
+    # Redis
+    REDIS_URL=redis://redis:6379/0
+    
+    # Celery
+    CELERY_BROKER_URL=redis://redis:6379/0
+    
+    # Email (Mailpit)
+    EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
+    EMAIL_HOST=mailpit
+    EMAIL_PORT=1025
+    
+    # FKAPI (optional - configure if using Football Kit Archive)
+    FKA_API_IP=your-fkapi-server-ip
+    API_KEY=your-fkapi-key
+    ```
+    
+    **PostgreSQL environment** (`.envs/.local/.postgres`):
+    
+    ```bash
+    # PostgreSQL
+    POSTGRES_HOST=postgres
+    POSTGRES_PORT=5432
+    POSTGRES_DB=footycollect
+    POSTGRES_USER=footycollect
+    POSTGRES_PASSWORD=local_development_password
+    
+    # Database URL for Django
+    DATABASE_URL=postgresql://footycollect:local_development_password@postgres:5432/footycollect
+    ```
+  </Step>
+
+  <Step title="Build and start services">
+    Build the Docker images and start all services:
+    
+    ```bash
+    docker compose -f docker-compose.local.yml up
+    ```
+    
+    <Note>
+      First build may take 5-10 minutes as it downloads base images and installs dependencies.
+    </Note>
+    
+    To run in detached mode (background):
+    
+    ```bash
+    docker compose -f docker-compose.local.yml up -d
+    ```
+  </Step>
+
+  <Step title="Run initial migrations">
+    In a separate terminal, run database migrations:
+    
+    ```bash
+    docker compose -f docker-compose.local.yml exec django python manage.py migrate
+    ```
+  </Step>
+
+  <Step title="Create a superuser">
+    Create an admin account:
+    
+    ```bash
+    docker compose -f docker-compose.local.yml exec django python manage.py createsuperuser
+    ```
+  </Step>
+
+  <Step title="Collect static files">
+    ```bash
+    docker compose -f docker-compose.local.yml exec django python manage.py collectstatic --noinput
+    ```
+  </Step>
+</Steps>
+
+## Access the Application
+
+Once all services are running:
+
+<CardGroup cols={2}>
+  <Card title="FootyCollect" icon="globe" href="http://localhost:8000">
+    **http://localhost:8000**
+    
+    Main application interface
+  </Card>
+  
+  <Card title="Django Admin" icon="lock" href="http://localhost:8000/admin">
+    **http://localhost:8000/admin**
+    
+    Administration panel (requires superuser)
+  </Card>
+  
+  <Card title="Flower" icon="flower" href="http://localhost:5555">
+    **http://localhost:5555**
+    
+    Celery task monitoring
+  </Card>
+  
+  <Card title="Mailpit" icon="envelope" href="http://localhost:8025">
+    **http://localhost:8025**
+    
+    Email testing interface
+  </Card>
+</CardGroup>
+
+## Docker Compose Configuration
+
+The `docker-compose.local.yml` file defines the complete development stack:
+
+```yaml
+volumes:
+  footycollect_local_postgres_data: {}
+  footycollect_local_postgres_data_backups: {}
+  footycollect_local_redis_data: {}
+
+services:
+  django: &django
+    build:
+      context: .
+      dockerfile: ./compose/local/django/Dockerfile
+    image: footycollect_local_django
+    container_name: footycollect_local_django
+    depends_on:
+      - postgres
+      - redis
+      - mailpit
+    volumes:
+      - .:/app:z
+    env_file:
+      - ./.envs/.local/.django
+      - ./.envs/.local/.postgres
+    ports:
+      - '8000:8000'
+    command: /start
+
+  postgres:
+    build:
+      context: .
+      dockerfile: ./compose/production/postgres/Dockerfile
+    image: footycollect_production_postgres
+    container_name: footycollect_local_postgres
+    volumes:
+      - footycollect_local_postgres_data:/var/lib/postgresql/data
+      - footycollect_local_postgres_data_backups:/backups
+    env_file:
+      - ./.envs/.local/.postgres
+
+  redis:
+    image: docker.io/redis:6
+    container_name: footycollect_local_redis
+    volumes:
+      - footycollect_local_redis_data:/data
+
+  celeryworker:
+    <<: *django
+    image: footycollect_local_celeryworker
+    container_name: footycollect_local_celeryworker
+    depends_on:
+      - redis
+      - postgres
+      - mailpit
+    ports: []
+    command: /start-celeryworker
+
+  celerybeat:
+    <<: *django
+    image: footycollect_local_celerybeat
+    container_name: footycollect_local_celerybeat
+    depends_on:
+      - redis
+      - postgres
+      - mailpit
+    ports: []
+    command: /start-celerybeat
+
+  flower:
+    <<: *django
+    image: footycollect_local_flower
+    container_name: footycollect_local_flower
+    ports:
+      - '5555:5555'
+    command: /start-flower
+
+  mailpit:
+    image: docker.io/axllent/mailpit:latest
+    container_name: footycollect_local_mailpit
+    ports:
+      - "8025:8025"
+```
+
+## Common Commands
+
+### Managing Services
+
+```bash
+# Start all services
+docker compose -f docker-compose.local.yml up
+
+# Start in background
+docker compose -f docker-compose.local.yml up -d
+
+# Stop all services
+docker compose -f docker-compose.local.yml down
+
+# Stop and remove volumes (deletes database data)
+docker compose -f docker-compose.local.yml down -v
+
+# Rebuild images
+docker compose -f docker-compose.local.yml build
+
+# View logs
+docker compose -f docker-compose.local.yml logs -f
+
+# View logs for specific service
+docker compose -f docker-compose.local.yml logs -f django
+```
+
+### Django Management Commands
+
+```bash
+# Run any Django management command
+docker compose -f docker-compose.local.yml exec django python manage.py <command>
+
+# Examples:
+docker compose -f docker-compose.local.yml exec django python manage.py migrate
+docker compose -f docker-compose.local.yml exec django python manage.py createsuperuser
+docker compose -f docker-compose.local.yml exec django python manage.py collectstatic
+docker compose -f docker-compose.local.yml exec django python manage.py shell
+```
+
+### Database Operations
+
+```bash
+# Access PostgreSQL shell
+docker compose -f docker-compose.local.yml exec postgres psql -U footycollect
+
+# Create database backup
+docker compose -f docker-compose.local.yml exec postgres backup
+
+# List backups
+docker compose -f docker-compose.local.yml exec postgres list-backups
+
+# Restore from backup
+docker compose -f docker-compose.local.yml exec postgres restore <backup_file>
+```
+
+### Redis Operations
+
+```bash
+# Access Redis CLI
+docker compose -f docker-compose.local.yml exec redis redis-cli
+
+# Flush Redis cache
+docker compose -f docker-compose.local.yml exec redis redis-cli FLUSHALL
+```
+
+### Shell Access
+
+```bash
+# Django container shell
+docker compose -f docker-compose.local.yml exec django bash
+
+# Django Python shell
+docker compose -f docker-compose.local.yml exec django python manage.py shell
+
+# PostgreSQL container shell
+docker compose -f docker-compose.local.yml exec postgres bash
+```
+
+## Development Workflow
+
+### Code Changes
+
+The Django service mounts your local code directory, so changes are reflected immediately:
+
+1. Edit code in your local editor
+2. Django auto-reloads (with Werkzeug watchdog)
+3. Refresh browser to see changes
+
+<Note>
+  For changes to requirements or Dockerfile, you'll need to rebuild:
+  
+  ```bash
+  docker compose -f docker-compose.local.yml build
+  docker compose -f docker-compose.local.yml up
+  ```
+</Note>
+
+### Running Tests
+
+```bash
+# Run all tests
+docker compose -f docker-compose.local.yml exec django pytest
+
+# Run specific test file
+docker compose -f docker-compose.local.yml exec django pytest footycollect/collection/tests/test_models.py
+
+# Run with coverage
+docker compose -f docker-compose.local.yml exec django pytest --cov
+```
+
+### Code Quality
+
+```bash
+# Format code with Ruff
+docker compose -f docker-compose.local.yml exec django ruff format .
+
+# Lint code
+docker compose -f docker-compose.local.yml exec django ruff check .
+
+# Type checking
+docker compose -f docker-compose.local.yml exec django mypy footycollect
+```
+
+## Volume Management
+
+Docker volumes persist data between container restarts:
+
+```bash
+# List volumes
+docker volume ls | grep footycollect
+
+# Inspect volume
+docker volume inspect footycollect_local_postgres_data
+
+# Remove all volumes (WARNING: deletes all data)
+docker compose -f docker-compose.local.yml down -v
+```
+
+## Troubleshooting
+
+### Port Already in Use
+
+If port 8000 is already in use:
+
+```yaml
+# Edit docker-compose.local.yml
+services:
+  django:
+    ports:
+      - '8001:8000'  # Change external port
+```
+
+### Database Connection Issues
+
+```bash
+# Check if PostgreSQL is running
+docker compose -f docker-compose.local.yml ps postgres
+
+# View PostgreSQL logs
+docker compose -f docker-compose.local.yml logs postgres
+
+# Restart PostgreSQL
+docker compose -f docker-compose.local.yml restart postgres
+```
+
+### Redis Connection Issues
+
+```bash
+# Check if Redis is running
+docker compose -f docker-compose.local.yml ps redis
+
+# Test Redis connection
+docker compose -f docker-compose.local.yml exec redis redis-cli ping
+```
+
+### Permission Issues (Linux)
+
+If you encounter permission issues with volumes:
+
+```bash
+# Ensure Docker is running with your user permissions
+sudo usermod -aG docker $USER
+
+# Log out and back in, then restart Docker
+sudo systemctl restart docker
+```
+
+### Clean Rebuild
+
+For a completely fresh start:
+
+```bash
+# Stop and remove everything
+docker compose -f docker-compose.local.yml down -v
+
+# Remove images
+docker compose -f docker-compose.local.yml rm -f
+
+# Rebuild and start
+docker compose -f docker-compose.local.yml build --no-cache
+docker compose -f docker-compose.local.yml up
+```
+
+## Performance Optimization
+
+### macOS/Windows Performance
+
+For better I/O performance on macOS and Windows:
+
+1. **Use Docker Desktop's native volumes** (already configured)
+2. **Delegate file watching** to the container (already configured with watchdog)
+3. **Exclude node_modules and cache directories** from volume mounts
+
+### Resource Limits
+
+If Docker is slow, increase resources in Docker Desktop:
+
+- **Memory**: 4GB minimum, 8GB recommended
+- **CPUs**: 2 minimum, 4 recommended
+- **Swap**: 1GB minimum
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Environment Variables" icon="gear" href="/installation/environment-variables">
+    Complete configuration reference
+  </Card>
+  <Card title="Local Setup" icon="code" href="/installation/local-setup">
+    Alternative: Manual local installation
+  </Card>
+  <Card title="Development Guide" icon="book" href="/development">
+    Learn about the architecture
+  </Card>
+  <Card title="API Reference" icon="api" href="/api-reference">
+    Explore REST API endpoints
+  </Card>
+</CardGroup>

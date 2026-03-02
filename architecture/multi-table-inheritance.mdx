@@ -1,0 +1,551 @@
+---
+title: Multi-Table Inheritance
+description: Multi-table inheritance pattern for modeling different item types in FootyCollect
+---
+
+FootyCollect uses Django's Multi-Table Inheritance (MTI) pattern to model different types of football memorabilia items. This architectural decision allows common attributes to be shared while supporting type-specific fields and behavior.
+
+## The Challenge
+
+FootyCollect needs to support multiple types of football memorabilia:
+- **Jerseys** - with player names, numbers, sleeve type
+- **Shorts** - with sizes and numbers
+- **Outerwear** - jackets, hoodies, windbreakers
+- **Tracksuits** - training wear
+- **Other items** - pins, hats, socks, etc.
+
+All items share common attributes:
+- Name, description, photos
+- User ownership
+- Club, season, brand
+- Condition, privacy settings
+- Created/updated timestamps
+
+But each type also has unique fields:
+- Jerseys have player names and numbers
+- Outerwear has type (hoodie, jacket, etc.)
+- Shorts have specific sizing
+
+## The Solution: Multi-Table Inheritance
+
+MTI uses a `BaseItem` model for common fields and separate models for each item type, connected via one-to-one relationships.
+
+```python
+BaseItem (common fields)
+├── Jersey (OneToOne with BaseItem)
+├── Shorts (OneToOne with BaseItem)
+├── Outerwear (OneToOne with BaseItem)
+└── Tracksuit (OneToOne with BaseItem)
+```
+
+<Info>
+This architectural decision is documented in [ADR 0001: Multi-Table Inheritance for Item Types](https://github.com/yourusername/footycollect/blob/main/docs/ARCHITECTURE/decisions/0001-multi-table-inheritance.md).
+</Info>
+
+## Implementation
+
+### BaseItem Model
+
+The base model contains all common fields:
+
+```python
+class BaseItem(models.Model):
+    # Item type identifier
+    ITEM_TYPE_CHOICES = [
+        ('jersey', _('Jersey')),
+        ('shorts', _('Shorts')),
+        ('outerwear', _('Outerwear')),
+        ('tracksuit', _('Tracksuit')),
+        ('pants', _('Pants')),
+        ('other', _('Other')),
+    ]
+    
+    item_type = models.CharField(
+        max_length=20,
+        choices=ITEM_TYPE_CHOICES,
+        help_text=_('Type of item'),
+    )
+    
+    # Common fields
+    name = models.CharField(max_length=200)
+    description = models.TextField(blank=True)
+    user = models.ForeignKey('users.User', on_delete=models.CASCADE)
+    
+    # Relationships
+    brand = models.ForeignKey(Brand, on_delete=models.CASCADE)
+    club = models.ForeignKey(Club, on_delete=models.CASCADE, null=True, blank=True)
+    season = models.ForeignKey(Season, on_delete=models.CASCADE, null=True, blank=True)
+    competitions = models.ManyToManyField(Competition)
+    
+    # Attributes
+    condition = models.IntegerField(validators=[MinValueValidator(1), MaxValueValidator(10)])
+    is_replica = models.BooleanField(default=False)
+    is_private = models.BooleanField(default=False)
+    is_draft = models.BooleanField(default=True)
+    
+    # Colors
+    main_color = models.ForeignKey(Color, on_delete=models.CASCADE, null=True)
+    secondary_colors = models.ManyToManyField(Color, related_name='secondary')
+    
+    # Metadata
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    # Photos (generic relation)
+    photos = GenericRelation(Photo)
+    
+    class Meta:
+        ordering = ['-created_at']
+```
+
+Source: `footycollect/collection/models.py:180-312`
+
+### Type-Specific Models
+
+Each item type has its own model with a one-to-one relationship to `BaseItem`:
+
+#### Jersey Model
+
+```python
+class Jersey(models.Model):
+    # OneToOne relationship as primary key
+    base_item = models.OneToOneField(
+        BaseItem,
+        on_delete=models.CASCADE,
+        related_name='jersey',
+        primary_key=True,
+    )
+    
+    # Jersey-specific fields
+    kit = models.ForeignKey(Kit, on_delete=models.CASCADE, null=True, blank=True)
+    size = models.ForeignKey(Size, on_delete=models.CASCADE)
+    is_fan_version = models.BooleanField(default=True)
+    is_signed = models.BooleanField(default=False)
+    has_nameset = models.BooleanField(default=False)
+    player_name = models.CharField(max_length=100, blank=True)
+    number = models.PositiveIntegerField(null=True, blank=True)
+    is_short_sleeve = models.BooleanField(default=True)
+    
+    def save(self, *args, **kwargs):
+        # Ensure the base_item has the correct item_type
+        if not self.base_item.item_type:
+            self.base_item.item_type = 'jersey'
+        
+        # Auto-generate name using builder
+        self.base_item.name = self.build_name()
+        self.base_item.save()
+        
+        super().save(*args, **kwargs)
+```
+
+Source: `footycollect/collection/models.py:379-422`
+
+#### Shorts Model
+
+```python
+class Shorts(models.Model):
+    base_item = models.OneToOneField(
+        BaseItem,
+        on_delete=models.CASCADE,
+        related_name='shorts',
+        primary_key=True,
+    )
+    
+    size = models.ForeignKey(Size, on_delete=models.CASCADE)
+    number = models.PositiveIntegerField(null=True, blank=True)
+    is_fan_version = models.BooleanField(default=True)
+    
+    def save(self, *args, **kwargs):
+        if not self.base_item.item_type:
+            self.base_item.item_type = 'shorts'
+            self.base_item.save()
+        super().save(*args, **kwargs)
+```
+
+Source: `footycollect/collection/models.py:508-532`
+
+#### Outerwear Model
+
+```python
+class Outerwear(models.Model):
+    TYPE_CHOICES = [
+        ('hoodie', 'Hoodie'),
+        ('jacket', 'Jacket'),
+        ('windbreaker', 'Windbreaker'),
+        ('crewneck', 'Crewneck'),
+    ]
+    
+    base_item = models.OneToOneField(
+        BaseItem,
+        on_delete=models.CASCADE,
+        related_name='outerwear',
+        primary_key=True,
+    )
+    
+    type = models.CharField(max_length=20, choices=TYPE_CHOICES)
+    size = models.ForeignKey(Size, on_delete=models.CASCADE)
+    
+    def save(self, *args, **kwargs):
+        if not self.base_item.item_type:
+            self.base_item.item_type = 'outerwear'
+            self.base_item.save()
+        super().save(*args, **kwargs)
+```
+
+Source: `footycollect/collection/models.py:535-565`
+
+## Working with MTI Models
+
+### Creating Items
+
+Creating an item involves creating both the `BaseItem` and the specific type:
+
+```python
+from django.db import transaction
+
+# Create a jersey
+with transaction.atomic():
+    # Create base item
+    base = BaseItem.objects.create(
+        user=user,
+        name='2023 Home Jersey',
+        item_type='jersey',
+        club=real_betis,
+        season=season_2023_24,
+        brand=adidas,
+        condition=10,
+        is_draft=False,
+    )
+    
+    # Create jersey-specific data
+    jersey = Jersey.objects.create(
+        base_item=base,
+        player_name='Joaquin',
+        number=17,
+        size=medium_size,
+        is_fan_version=False,
+        is_short_sleeve=True,
+    )
+```
+
+<Note>
+The `save()` method on specific models automatically sets the correct `item_type` on the base item, so you can often omit it when creating the base item.
+</Note>
+
+### Querying Items
+
+#### Get All Items
+
+```python
+# Get all items for a user
+all_items = BaseItem.objects.filter(user=user)
+
+# Get public items
+public_items = BaseItem.objects.filter(is_private=False, is_draft=False)
+```
+
+#### Get Specific Type
+
+```python
+# Get all jerseys
+jerseys = Jersey.objects.all()
+
+# Get jerseys with base item data (efficient)
+jerseys = Jersey.objects.select_related('base_item').filter(
+    base_item__user=user
+)
+
+for jersey in jerseys:
+    print(f"{jersey.base_item.name} - {jersey.player_name}#{jersey.number}")
+```
+
+#### Access Type-Specific Data from BaseItem
+
+```python
+# Get base item
+item = BaseItem.objects.get(pk=item_id)
+
+# Access specific type data
+if item.item_type == 'jersey':
+    jersey = item.jersey  # Access via related_name
+    print(f"Player: {jersey.player_name}")
+    print(f"Number: {jersey.number}")
+    print(f"Size: {jersey.size.name}")
+elif item.item_type == 'outerwear':
+    outerwear = item.outerwear
+    print(f"Type: {outerwear.get_type_display()}")
+```
+
+#### Get Specific Item Dynamically
+
+```python
+class BaseItem(models.Model):
+    def get_specific_item(self):
+        """Get the specific item instance (Jersey, Shorts, etc.)."""
+        item_mappings = {
+            'jersey': 'jersey',
+            'shorts': 'shorts',
+            'outerwear': 'outerwear',
+            'tracksuit': 'tracksuit',
+            'pants': 'pants',
+            'other': 'otheritem',
+        }
+        
+        attr_name = item_mappings.get(self.item_type)
+        if attr_name and hasattr(self, attr_name):
+            return getattr(self, attr_name)
+        return None
+
+# Usage
+item = BaseItem.objects.get(pk=item_id)
+specific = item.get_specific_item()  # Returns Jersey, Shorts, etc.
+```
+
+Source: `footycollect/collection/models.py:346-363`
+
+### Optimizing Queries
+
+Use `select_related()` to avoid N+1 queries:
+
+```python
+# Bad - causes N+1 queries
+jerseys = Jersey.objects.all()
+for jersey in jerseys:
+    print(jersey.base_item.name)  # Separate query for each jersey!
+
+# Good - single query with JOIN
+jerseys = Jersey.objects.select_related(
+    'base_item',
+    'base_item__club',
+    'base_item__season',
+    'base_item__brand',
+    'kit',
+    'size'
+)
+for jersey in jerseys:
+    print(jersey.base_item.name)  # No additional queries
+```
+
+## Advantages of MTI
+
+### 1. Clear Separation
+
+Common and type-specific fields are clearly separated:
+- `BaseItem` contains what all items share
+- Specific models contain only type-specific fields
+- No nullable fields for type-specific attributes
+
+### 2. Type Safety
+
+Each item type has its own model with proper field types:
+
+```python
+# Jersey has player_name and number
+jersey = Jersey.objects.get(pk=1)
+print(jersey.player_name)  # ✓ Type-safe
+
+# Shorts doesn't have player_name
+shorts = Shorts.objects.get(pk=2)
+print(shorts.player_name)  # ✗ AttributeError - compile-time safety
+```
+
+### 3. Query Flexibility
+
+Can query all items or specific types:
+
+```python
+# All items regardless of type
+all_items = BaseItem.objects.filter(user=user)
+
+# Only jerseys
+jerseys = Jersey.objects.filter(base_item__user=user)
+
+# Only jerseys with numbers
+numbered_jerseys = Jersey.objects.filter(
+    base_item__user=user,
+    number__isnull=False
+)
+```
+
+### 4. Extensibility
+
+Easy to add new item types without modifying existing code:
+
+1. Create new model with `OneToOneField` to `BaseItem`
+2. Add choice to `ITEM_TYPE_CHOICES`
+3. Run migrations
+4. Existing code continues to work
+
+### 5. Django ORM Support
+
+Works seamlessly with Django's ORM and admin:
+- Automatic admin interfaces
+- Model forms work correctly
+- Migrations are straightforward
+- Signals work as expected
+
+## Trade-offs and Considerations
+
+### Database JOINs
+
+Accessing type-specific fields requires JOINs:
+
+```sql
+-- Getting jersey with base item data requires JOIN
+SELECT * FROM collection_jersey
+JOIN collection_baseitem ON collection_jersey.base_item_id = collection_baseitem.id
+WHERE collection_baseitem.user_id = 1;
+```
+
+**Mitigation**: Use `select_related()` to make JOINs efficient.
+
+### Multiple Tables
+
+Each item type creates a separate table:
+- `collection_baseitem`
+- `collection_jersey`
+- `collection_shorts`
+- `collection_outerwear`
+- `collection_tracksuit`
+
+**Benefit**: Clear schema, no nullable type-specific fields, efficient storage.
+
+### Migration Complexity
+
+Adding fields requires migrations on multiple tables:
+
+```python
+# Adding a common field
+class Migration:
+    operations = [
+        migrations.AddField(
+            model_name='baseitem',
+            name='new_field',
+            field=models.CharField(max_length=100),
+        ),
+    ]
+
+# Adding jersey-specific field
+class Migration:
+    operations = [
+        migrations.AddField(
+            model_name='jersey',
+            name='jersey_field',
+            field=models.BooleanField(default=False),
+        ),
+    ]
+```
+
+**Mitigation**: Django migrations handle this automatically.
+
+## Alternative Patterns Considered
+
+### Single Table Inheritance (STI)
+
+**Rejected because**:
+- Requires nullable fields for type-specific attributes
+- Wastes storage space
+- Less type-safe
+- Harder to maintain as types grow
+
+```python
+# STI approach (not used)
+class Item(models.Model):
+    item_type = models.CharField(...)
+    # Common fields
+    # Jersey fields (nullable)
+    player_name = models.CharField(null=True)  # Only for jerseys
+    number = models.IntegerField(null=True)  # Only for jerseys
+    # Outerwear fields (nullable)
+    outerwear_type = models.CharField(null=True)  # Only for outerwear
+    # ... becomes messy with many types
+```
+
+### Abstract Base Classes
+
+**Rejected because**:
+- Can't query all items together
+- Can't have ForeignKeys to "any item"
+- No shared table for common attributes
+
+```python
+# Abstract base class (not used)
+class BaseItem(models.Model):
+    # Common fields
+    class Meta:
+        abstract = True  # No database table created
+
+class Jersey(BaseItem):  # Separate table with ALL fields
+    player_name = models.CharField(...)
+
+# Can't do: BaseItem.objects.filter(user=user)
+# Can't do: ForeignKey(BaseItem)
+```
+
+### Generic Foreign Keys
+
+**Rejected because**:
+- Loses referential integrity
+- Harder to query
+- More complex code
+- No database-level constraints
+
+## Custom Managers for MTI
+
+FootyCollect provides custom managers for common queries:
+
+```python
+class BaseItemManager(models.Manager):
+    def public(self):
+        return self.filter(is_private=False, is_draft=False)
+    
+    def private(self):
+        return self.filter(is_private=True)
+    
+    def drafts(self):
+        return self.filter(is_draft=True)
+
+class MTIManager(models.Manager):
+    """Manager for type-specific models."""
+    
+    def public(self):
+        return self.filter(base_item__is_private=False, base_item__is_draft=False)
+    
+    def private(self):
+        return self.filter(base_item__is_private=True)
+    
+    def drafts(self):
+        return self.filter(base_item__is_draft=True)
+```
+
+Source: `footycollect/collection/models.py:157-177`
+
+**Usage**:
+
+```python
+# Get all public jerseys
+Jersey.objects.public()
+
+# Get draft items
+BaseItem.objects.drafts()
+```
+
+## Best Practices
+
+<Note>
+**Guidelines for working with MTI:**
+
+1. **Always use transactions** when creating items (create BaseItem and specific type together)
+2. **Use select_related()** to optimize queries and avoid N+1 problems
+3. **Implement save() methods** on specific models to ensure item_type is set correctly
+4. **Use get_specific_item()** method when you need to access type-specific data dynamically
+5. **Index common query patterns** (user+type, club+season, etc.)
+6. **Keep common fields in BaseItem** - don't duplicate in specific models
+7. **Type-specific fields only** in specific models - avoid nullable type fields in BaseItem
+</Note>
+
+## References
+
+- [Django Multi-Table Inheritance Documentation](https://docs.djangoproject.com/en/stable/topics/db/models/#multi-table-inheritance)
+- [Django Model Inheritance Patterns](https://docs.djangoproject.com/en/stable/topics/db/models/#model-inheritance)
+- [ADR 0001: Multi-Table Inheritance](https://github.com/yourusername/footycollect/blob/main/docs/ARCHITECTURE/decisions/0001-multi-table-inheritance.md)

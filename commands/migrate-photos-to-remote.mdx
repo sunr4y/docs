@@ -1,0 +1,253 @@
+---
+title: migrate_photos_to_remote
+description: Migrate photos from local storage to remote storage (S3/R2)
+---
+
+The `migrate_photos_to_remote` command migrates photos from local filesystem storage to remote cloud storage (AWS S3 or Cloudflare R2). This is useful when transitioning from local development to production with cloud storage.
+
+## How it works
+
+The command reads photos from the local filesystem and uploads them to the configured remote storage backend while maintaining the same file paths and structure.
+
+## Basic usage
+
+```bash
+python manage.py migrate_photos_to_remote
+```
+
+<Warning>
+  Always use `--dry-run` first to preview what will be migrated.
+</Warning>
+
+## Arguments and options
+
+<ParamField path="--dry-run" type="boolean">
+  Preview mode - show what would be migrated without actually uploading files.
+  
+  **Example:**
+  ```bash
+  python manage.py migrate_photos_to_remote --dry-run
+  ```
+</ParamField>
+
+<ParamField path="--verbose" type="boolean">
+  Show detailed output including each file being processed.
+  
+  **Example:**
+  ```bash
+  python manage.py migrate_photos_to_remote --verbose
+  ```
+</ParamField>
+
+<ParamField path="--skip-existing" type="boolean">
+  Skip photos that already exist in remote storage (avoids re-uploading).
+  
+  **Example:**
+  ```bash
+  python manage.py migrate_photos_to_remote --skip-existing
+  ```
+</ParamField>
+
+## Prerequisites
+
+### Configure remote storage
+
+Set the storage backend in your environment:
+
+```bash
+STORAGE_BACKEND=r2  # or 's3'
+```
+
+### AWS S3 configuration
+
+```bash
+AWS_ACCESS_KEY_ID=your-access-key
+AWS_SECRET_ACCESS_KEY=your-secret-key
+AWS_STORAGE_BUCKET_NAME=your-bucket-name
+AWS_S3_REGION_NAME=us-east-1
+```
+
+### Cloudflare R2 configuration
+
+```bash
+CLOUDFLARE_R2_ACCESS_KEY_ID=your-access-key
+CLOUDFLARE_R2_SECRET_ACCESS_KEY=your-secret-key
+CLOUDFLARE_R2_BUCKET_NAME=your-bucket-name
+CLOUDFLARE_R2_ACCOUNT_ID=your-account-id
+```
+
+## Migration workflow
+
+<Steps>
+  <Step title="Preview migration">
+    Run with `--dry-run` to see what will be migrated:
+    
+    ```bash
+    python manage.py migrate_photos_to_remote --dry-run --verbose
+    ```
+  </Step>
+  
+  <Step title="Verify storage configuration">
+    Ensure remote storage credentials are correct and the bucket is accessible.
+  </Step>
+  
+  <Step title="Run migration">
+    Execute the migration:
+    
+    ```bash
+    python manage.py migrate_photos_to_remote
+    ```
+  </Step>
+  
+  <Step title="Verify uploads">
+    Check that photos are accessible via remote storage URLs:
+    
+    ```bash
+    python manage.py shell
+    from footycollect.collection.models import Photo
+    photo = Photo.objects.first()
+    print(photo.image.url)  # Should be remote URL
+    ```
+  </Step>
+  
+  <Step title="Test application">
+    Verify photos load correctly in the application.
+  </Step>
+  
+  <Step title="Clean up local files (optional)">
+    Once verified, you can remove local photo files to free up disk space.
+  </Step>
+</Steps>
+
+## What gets migrated
+
+The command migrates all files in the Photo model:
+
+- **Original images**: `image` field (JPEG/PNG/WebP)
+- **AVIF versions**: `image_avif` field (optimized format)
+
+## Output example
+
+```
+Starting photo migration to remote storage...
+Storage backend: r2
+Remote storage configured correctly
+
+Found 142 photos to migrate
+
+Migrating photos:
+  Uploading: item_photos/jersey_123.jpg
+  Uploading: item_photos_avif/jersey_123.avif
+  Uploading: item_photos/shorts_456.jpg
+  Uploading: item_photos_avif/shorts_456.avif
+  ...
+
+Migration complete!
+Total photos migrated: 142
+Total files uploaded: 284
+Total size: 45.2 MB
+```
+
+## Resume interrupted migration
+
+If migration is interrupted, resume with `--skip-existing`:
+
+```bash
+python manage.py migrate_photos_to_remote --skip-existing
+```
+
+This skips already-uploaded files and continues with remaining photos.
+
+## Storage validation
+
+Before migration, the command validates:
+
+- Storage backend is set to remote (`s3` or `r2`)
+- Remote storage credentials are configured
+- Bucket is accessible
+
+<Warning>
+  Migration will fail if `STORAGE_BACKEND` is set to `local`.
+</Warning>
+
+## Performance considerations
+
+- **Upload speed**: Depends on network bandwidth and file sizes
+- **Large migrations**: For thousands of photos, consider running in a screen/tmux session
+- **Bandwidth costs**: Check your cloud provider's transfer pricing
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Storage backend error">
+    Ensure `STORAGE_BACKEND` is set to `s3` or `r2`:
+    
+    ```bash
+    echo $STORAGE_BACKEND
+    ```
+    
+    Not `local`.
+  </Accordion>
+  
+  <Accordion title="Authentication failed">
+    Verify credentials are correct:
+    
+    ```bash
+    # For S3
+    echo $AWS_ACCESS_KEY_ID
+    echo $AWS_SECRET_ACCESS_KEY
+    
+    # For R2
+    echo $CLOUDFLARE_R2_ACCESS_KEY_ID
+    echo $CLOUDFLARE_R2_SECRET_ACCESS_KEY
+    ```
+  </Accordion>
+  
+  <Accordion title="Bucket not found">
+    Verify bucket name and region:
+    
+    ```bash
+    echo $AWS_STORAGE_BUCKET_NAME
+    echo $AWS_S3_REGION_NAME
+    ```
+    
+    Ensure the bucket exists in your cloud provider console.
+  </Accordion>
+  
+  <Accordion title="Files not uploading">
+    Check file permissions on local files:
+    
+    ```bash
+    ls -la media/item_photos/
+    ```
+    
+    Ensure the Django process has read access.
+  </Accordion>
+  
+  <Accordion title="Slow upload speed">
+    For large migrations, consider:
+    - Running during off-peak hours
+    - Using a cloud instance in the same region as your bucket
+    - Increasing network bandwidth
+  </Accordion>
+</AccordionGroup>
+
+## Post-migration
+
+After successful migration:
+
+1. **Update settings**: Ensure `STORAGE_BACKEND` is set in production environment
+2. **Test uploads**: Create a new item with photos to verify new uploads work
+3. **Monitor storage**: Check cloud storage usage and costs
+4. **Backup**: Consider keeping local files as backup temporarily
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Environment Setup" icon="gear" href="/deployment/environment-setup">
+    Configure storage backend environment variables
+  </Card>
+  <Card title="Photo Management" icon="image" href="/features/photo-management">
+    Learn about photo handling in FootyCollect
+  </Card>
+</CardGroup>

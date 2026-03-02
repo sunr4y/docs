@@ -1,0 +1,647 @@
+---
+title: Production Environment Setup
+description: Configure production environment variables and secrets for FootyCollect
+---
+
+FootyCollect uses environment variables for all configuration. This guide covers all production environment variables based on deploy/env.example.
+
+## Environment File Locations
+
+Depending on your deployment method, environment variables are stored in different locations:
+
+<Tabs>
+  <Tab title="Docker">
+    Split into two files:
+    - `.envs/.production/.django` - Django application settings
+    - `.envs/.production/.postgres` - PostgreSQL database settings
+    
+    Both files are loaded by docker-compose.production.yml.
+  </Tab>
+  <Tab title="Bare Metal">
+    Single file:
+    - `/var/www/footycollect/.env` - All environment variables
+    
+    Loaded by gunicorn.service via `EnvironmentFile` directive.
+  </Tab>
+</Tabs>
+
+<Note>
+  Use deploy/env.example as your template. It contains all available variables with descriptions.
+</Note>
+
+## Required Variables
+
+These variables **must** be set for production deployment:
+
+### Django Core Settings
+
+```bash
+# Secret key for cryptographic signing (REQUIRED)
+DJANGO_SECRET_KEY=your-secret-key-here
+
+# Debug mode - MUST be False in production
+DJANGO_DEBUG=False
+
+# Allowed hosts - comma-separated list of domains
+DJANGO_ALLOWED_HOSTS=yourdomain.com,www.yourdomain.com
+
+# Admin URL path (change from default 'admin/')
+DJANGO_ADMIN_URL=admin/
+```
+
+<Warning>
+  **Generate a secure SECRET_KEY**:
+  ```bash
+  python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'
+  ```
+  
+  Never use default values or commit SECRET_KEY to version control.
+</Warning>
+
+### Database Configuration
+
+```bash
+# PostgreSQL connection string
+DATABASE_URL=postgresql://footycollect:your-db-password@localhost:5432/footycollect_db
+
+# For Docker, use service name:
+# DATABASE_URL=postgresql://footycollect:your-db-password@postgres:5432/footycollect_db
+
+# Connection pooling (seconds to keep connections alive)
+CONN_MAX_AGE=60
+```
+
+<AccordionGroup>
+  <Accordion title="Docker - Separate PostgreSQL Variables">
+    If using Docker, also create `.envs/.production/.postgres`:
+    
+    ```bash
+    POSTGRES_HOST=postgres
+    POSTGRES_PORT=5432
+    POSTGRES_DB=footycollect_db
+    POSTGRES_USER=footycollect
+    POSTGRES_PASSWORD=your-secure-db-password
+    
+    # DATABASE_URL must also be in .django file
+    DATABASE_URL=postgresql://footycollect:your-secure-db-password@postgres:5432/footycollect_db
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Redis Configuration
+
+```bash
+# Redis connection string for cache and Celery
+REDIS_URL=redis://localhost:6379/0
+
+# For Docker, use service name:
+# REDIS_URL=redis://redis:6379/0
+```
+
+## Security Settings
+
+Configure security headers and HTTPS enforcement:
+
+### SSL/TLS Settings
+
+```bash
+# Redirect all HTTP to HTTPS
+DJANGO_SECURE_SSL_REDIRECT=True
+
+# HTTP Strict Transport Security (HSTS)
+DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS=True
+DJANGO_SECURE_HSTS_PRELOAD=True
+
+# Prevent MIME type sniffing
+DJANGO_SECURE_CONTENT_TYPE_NOSNIFF=True
+
+# Cookie security
+DJANGO_SESSION_COOKIE_SAMESITE=Lax
+DJANGO_CSRF_COOKIE_SAMESITE=Lax
+
+# Referrer policy
+DJANGO_REFERRER_POLICY=strict-origin-when-cross-origin
+
+# Permissions policy
+DJANGO_PERMISSIONS_POLICY=geolocation=(), microphone=(), camera=(), payment=()
+```
+
+<Note>
+  These settings are validated by Django's deployment checks in config/checks.py:334.
+</Note>
+
+### Content Security Policy (CSP)
+
+```bash
+# Enable CSP
+DJANGO_CSP_ENABLED=True
+
+# Image sources (include your CDN/S3 bucket)
+DJANGO_CSP_IMG_SRC='self', data:, blob:, https://www.gravatar.com, https://cdn.footballkitarchive.com, https://your-bucket.s3.amazonaws.com
+
+# Optional: Override default CSP directives
+# DJANGO_CSP_DEFAULT_SRC='self'
+# DJANGO_CSP_SCRIPT_SRC='self', 'unsafe-inline', 'unsafe-eval', https://cdnjs.cloudflare.com
+# DJANGO_CSP_STYLE_SRC='self', 'unsafe-inline', https://cdnjs.cloudflare.com, https://fonts.googleapis.com
+# DJANGO_CSP_FONT_SRC='self', https://cdnjs.cloudflare.com, https://fonts.gstatic.com
+# DJANGO_CSP_CONNECT_SRC='self'
+# DJANGO_CSP_FRAME_ANCESTORS='self'
+# DJANGO_CSP_FORM_ACTION='self'
+```
+
+<Warning>
+  Update `DJANGO_CSP_IMG_SRC` to include your S3/R2 bucket URL and any external image sources (e.g., Football Kit Archive CDN).
+</Warning>
+
+### API Rate Limiting
+
+```bash
+# DRF throttling rates for /api/ endpoints
+DJANGO_DRF_USER_THROTTLE_RATE=100/hour
+DJANGO_DRF_ANON_THROTTLE_RATE=20/hour
+```
+
+## Email Configuration
+
+FootyCollect uses SendGrid for email delivery:
+
+```bash
+# SendGrid API key
+SENDGRID_API_KEY=your-sendgrid-api-key
+
+# SendGrid API URL (default)
+SENDGRID_API_URL=https://api.sendgrid.com/v3/
+
+# From email addresses
+DJANGO_DEFAULT_FROM_EMAIL=FootyCollect <noreply@yourdomain.com>
+DJANGO_SERVER_EMAIL=FootyCollect <noreply@yourdomain.com>
+
+# Email subject prefix
+DJANGO_EMAIL_SUBJECT_PREFIX=[FootyCollect]
+```
+
+<AccordionGroup>
+  <Accordion title="Get SendGrid API Key">
+    1. Sign up at [SendGrid](https://sendgrid.com/)
+    2. Navigate to Settings > API Keys
+    3. Create a new API key with "Mail Send" permissions
+    4. Copy the key (shown only once)
+    5. Add to `SENDGRID_API_KEY`
+  </Accordion>
+  
+  <Accordion title="Verify Sender Domain">
+    1. In SendGrid, go to Settings > Sender Authentication
+    2. Verify your domain (yourdomain.com)
+    3. Add DNS records as instructed
+    4. Use verified domain in `DJANGO_DEFAULT_FROM_EMAIL`
+  </Accordion>
+</AccordionGroup>
+
+## Storage Configuration
+
+Configure S3-compatible storage for static and media files:
+
+### Storage Backend Selection
+
+```bash
+# Choose storage backend: 'aws' or 'r2'
+STORAGE_BACKEND=aws
+```
+
+### AWS S3 Storage
+
+```bash
+STORAGE_BACKEND=aws
+
+# AWS credentials
+DJANGO_AWS_ACCESS_KEY_ID=your-aws-access-key-id
+DJANGO_AWS_SECRET_ACCESS_KEY=your-aws-secret-access-key
+
+# S3 bucket configuration
+DJANGO_AWS_STORAGE_BUCKET_NAME=your-bucket-name
+DJANGO_AWS_S3_REGION_NAME=us-east-1
+
+# Optional: Custom domain (CloudFront CDN)
+DJANGO_AWS_S3_CUSTOM_DOMAIN=cdn.yourdomain.com
+```
+
+<AccordionGroup>
+  <Accordion title="Create S3 Bucket">
+    1. Log into AWS Console
+    2. Navigate to S3 > Create bucket
+    3. Choose a unique bucket name
+    4. Select region (e.g., us-east-1)
+    5. **Uncheck** "Block all public access" (static files need public read)
+    6. Create bucket
+  </Accordion>
+  
+  <Accordion title="Create IAM User">
+    1. Navigate to IAM > Users > Add user
+    2. Enable "Programmatic access"
+    3. Attach policy: `AmazonS3FullAccess` (or create custom policy)
+    4. Save Access Key ID and Secret Access Key
+    5. Add to environment variables
+  </Accordion>
+  
+  <Accordion title="Configure Bucket Policy">
+    Add public read policy for static files:
+    
+    ```json
+    {
+      "Version": "2012-10-17",
+      "Statement": [
+        {
+          "Sid": "PublicReadGetObject",
+          "Effect": "Allow",
+          "Principal": "*",
+          "Action": "s3:GetObject",
+          "Resource": "arn:aws:s3:::your-bucket-name/static/*"
+        }
+      ]
+    }
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Cloudflare R2 Storage
+
+```bash
+STORAGE_BACKEND=r2
+
+# Cloudflare R2 credentials
+CLOUDFLARE_ACCESS_KEY_ID=your-cloudflare-access-key-id
+CLOUDFLARE_SECRET_ACCESS_KEY=your-cloudflare-secret-access-key
+
+# R2 bucket configuration
+CLOUDFLARE_BUCKET_NAME=your-r2-bucket-name
+CLOUDFLARE_R2_ENDPOINT_URL=https://<account-id>.r2.cloudflarestorage.com
+CLOUDFLARE_R2_REGION=auto
+
+# Optional: Custom domain
+CLOUDFLARE_R2_CUSTOM_DOMAIN=cdn.yourdomain.com
+```
+
+<AccordionGroup>
+  <Accordion title="Create R2 Bucket">
+    1. Log into Cloudflare Dashboard
+    2. Navigate to R2 > Create bucket
+    3. Choose a bucket name
+    4. Create bucket
+  </Accordion>
+  
+  <Accordion title="Generate API Token">
+    1. In R2, go to Manage R2 API Tokens
+    2. Create API token
+    3. Set permissions: Read and Write
+    4. Save Access Key ID and Secret Access Key
+    5. Note the endpoint URL (contains your account ID)
+  </Accordion>
+  
+  <Accordion title="Configure CORS (Required for Fonts)">
+    If serving fonts or static assets from a custom domain, configure CORS:
+    
+    ```bash
+    # Using Wrangler CLI
+    npx wrangler r2 bucket cors set your-bucket-name --file deploy/r2-cors-wrangler.json
+    ```
+    
+    Or manually add in Cloudflare Dashboard > R2 > bucket > Settings > CORS Policy.
+  </Accordion>
+  
+  <Accordion title="Setup Custom Domain">
+    1. In R2 bucket settings, click "Connect Custom Domain"
+    2. Enter your subdomain (e.g., cdn.yourdomain.com)
+    3. Add CNAME record to your DNS:
+       - Type: CNAME
+       - Name: cdn
+       - Target: (provided by Cloudflare)
+    4. Set `CLOUDFLARE_R2_CUSTOM_DOMAIN=cdn.yourdomain.com`
+  </Accordion>
+</AccordionGroup>
+
+<Note>
+  **Why Cloudflare R2?** R2 offers S3-compatible API with **free egress** (no bandwidth charges), significantly reducing costs compared to AWS S3.
+</Note>
+
+## Error Tracking (Sentry)
+
+Configure Sentry for error monitoring and performance tracking:
+
+```bash
+# Sentry DSN (Data Source Name)
+SENTRY_DSN=your-sentry-dsn
+
+# Environment identifier
+SENTRY_ENVIRONMENT=production
+
+# Performance monitoring sample rate (0.0 to 1.0)
+SENTRY_TRACES_SAMPLE_RATE=0.0
+```
+
+<AccordionGroup>
+  <Accordion title="Setup Sentry">
+    1. Sign up at [Sentry.io](https://sentry.io/)
+    2. Create a new project (Django)
+    3. Copy the DSN from project settings
+    4. Add to `SENTRY_DSN`
+  </Accordion>
+  
+  <Accordion title="Configure Sample Rate">
+    `SENTRY_TRACES_SAMPLE_RATE` controls performance monitoring:
+    - `0.0` - Disabled (no performance tracking)
+    - `0.1` - 10% of requests tracked
+    - `1.0` - 100% of requests tracked (high volume)
+    
+    Start with `0.0` or `0.1` to avoid quota limits.
+  </Accordion>
+</AccordionGroup>
+
+<Warning>
+  Sentry is **highly recommended** for production. It provides:
+  - Real-time error alerts
+  - Stack traces and context
+  - Performance monitoring
+  - Release tracking
+</Warning>
+
+## External Integrations
+
+### Football Kit Archive API (FKAPI)
+
+```bash
+# FKAPI server IP or hostname
+FKA_API_IP=your-fkapi-server-ip
+
+# API authentication key
+API_KEY=your-fkapi-key
+
+# Allowed image download hosts (SSRF protection)
+DJANGO_ALLOWED_EXTERNAL_IMAGE_HOSTS=cdn.footballkitarchive.com,www.footballkitarchive.com
+```
+
+<Note>
+  FKAPI is optional but provides Football Kit Archive integration for searching and adding kits. See [FKAPI repository](https://github.com/sunr4y/fkapi) for setup.
+</Note>
+
+### Rotating Proxy (Optional)
+
+```bash
+# Rotating proxy for image downloads (avoid rate limiting)
+ROTATING_PROXY_URL=http://proxy.example.com:8080
+ROTATING_PROXY_USERNAME=your-proxy-username
+ROTATING_PROXY_PASSWORD=your-proxy-password
+```
+
+<AccordionGroup>
+  <Accordion title="When to Use Rotating Proxy">
+    Use a rotating proxy if:
+    - Downloading many images from external sources
+    - Getting rate-limited by image hosts
+    - Need to distribute requests across multiple IPs
+    
+    Supports HTTP, HTTPS, and SOCKS5 proxies.
+  </Accordion>
+</AccordionGroup>
+
+## Performance Settings
+
+### Compression
+
+```bash
+# Enable compression for responses
+COMPRESS_ENABLED=True
+```
+
+### Connection Pooling
+
+```bash
+# Persistent database connections (seconds)
+CONN_MAX_AGE=60
+```
+
+<Note>
+  `CONN_MAX_AGE=60` keeps database connections alive for 60 seconds, reducing connection overhead. Set to `0` to disable pooling.
+</Note>
+
+## Complete Environment File Example
+
+Here's a complete production environment file (deploy/env.example:1):
+
+<Accordion title="View Complete .env Example">
+```bash
+# ============================================
+# Django Core Settings
+# ============================================
+DJANGO_SECRET_KEY=your-secret-key-here-generate-with-django-admin-utils
+DJANGO_DEBUG=False
+DJANGO_ALLOWED_HOSTS=yourdomain.com,www.yourdomain.com
+DJANGO_ADMIN_URL=admin/
+
+# ============================================
+# Database
+# ============================================
+DATABASE_URL=postgresql://footycollect:your-db-password@localhost:5432/footycollect_db
+CONN_MAX_AGE=60
+
+# ============================================
+# Redis
+# ============================================
+REDIS_URL=redis://localhost:6379/0
+
+# ============================================
+# Security Settings
+# ============================================
+DJANGO_SECURE_SSL_REDIRECT=True
+DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS=True
+DJANGO_SECURE_HSTS_PRELOAD=True
+DJANGO_SECURE_CONTENT_TYPE_NOSNIFF=True
+DJANGO_SESSION_COOKIE_SAMESITE=Lax
+DJANGO_CSRF_COOKIE_SAMESITE=Lax
+DJANGO_REFERRER_POLICY=strict-origin-when-cross-origin
+DJANGO_PERMISSIONS_POLICY=geolocation=(), microphone=(), camera=(), payment=()
+
+# ============================================
+# Content Security Policy
+# ============================================
+DJANGO_CSP_ENABLED=True
+DJANGO_CSP_IMG_SRC='self', data:, blob:, https://www.gravatar.com, https://cdn.footballkitarchive.com, https://your-bucket.s3.amazonaws.com
+
+# ============================================
+# API Rate Limiting
+# ============================================
+DJANGO_DRF_USER_THROTTLE_RATE=100/hour
+DJANGO_DRF_ANON_THROTTLE_RATE=20/hour
+
+# ============================================
+# Email (SendGrid)
+# ============================================
+SENDGRID_API_KEY=your-sendgrid-api-key
+SENDGRID_API_URL=https://api.sendgrid.com/v3/
+DJANGO_DEFAULT_FROM_EMAIL=FootyCollect <noreply@yourdomain.com>
+DJANGO_SERVER_EMAIL=FootyCollect <noreply@yourdomain.com>
+DJANGO_EMAIL_SUBJECT_PREFIX=[FootyCollect]
+
+# ============================================
+# Error Tracking (Sentry)
+# ============================================
+SENTRY_DSN=your-sentry-dsn
+SENTRY_ENVIRONMENT=production
+SENTRY_TRACES_SAMPLE_RATE=0.0
+
+# ============================================
+# Storage Backend
+# ============================================
+STORAGE_BACKEND=aws
+
+# AWS S3 (if STORAGE_BACKEND=aws)
+DJANGO_AWS_ACCESS_KEY_ID=your-aws-access-key-id
+DJANGO_AWS_SECRET_ACCESS_KEY=your-aws-secret-access-key
+DJANGO_AWS_STORAGE_BUCKET_NAME=your-bucket-name
+DJANGO_AWS_S3_REGION_NAME=us-east-1
+DJANGO_AWS_S3_CUSTOM_DOMAIN=
+
+# Cloudflare R2 (if STORAGE_BACKEND=r2)
+# CLOUDFLARE_ACCESS_KEY_ID=your-cloudflare-access-key-id
+# CLOUDFLARE_SECRET_ACCESS_KEY=your-cloudflare-secret-access-key
+# CLOUDFLARE_BUCKET_NAME=your-r2-bucket-name
+# CLOUDFLARE_R2_ENDPOINT_URL=https://<account-id>.r2.cloudflarestorage.com
+# CLOUDFLARE_R2_REGION=auto
+# CLOUDFLARE_R2_CUSTOM_DOMAIN=
+
+# ============================================
+# External Integrations
+# ============================================
+# FKAPI (Football Kit Archive)
+FKA_API_IP=your-fkapi-server-ip
+API_KEY=your-fkapi-key
+DJANGO_ALLOWED_EXTERNAL_IMAGE_HOSTS=cdn.footballkitarchive.com,www.footballkitarchive.com
+
+# Rotating Proxy (optional)
+ROTATING_PROXY_URL=
+ROTATING_PROXY_USERNAME=
+ROTATING_PROXY_PASSWORD=
+
+# ============================================
+# Performance
+# ============================================
+COMPRESS_ENABLED=True
+```
+</Accordion>
+
+## Environment File Security
+
+<Warning>
+  **Protect Your Environment Files**
+  
+  Environment files contain sensitive credentials. Follow these security practices:
+</Warning>
+
+### File Permissions
+
+```bash
+# Bare metal - restrict .env access
+chmod 600 /var/www/footycollect/.env
+chown footycollect:footycollect /var/www/footycollect/.env
+
+# Docker - restrict environment directory
+chmod 700 .envs/.production
+chmod 600 .envs/.production/.django
+chmod 600 .envs/.production/.postgres
+```
+
+### Version Control
+
+```bash
+# NEVER commit environment files
+echo ".envs/" >> .gitignore
+echo ".env" >> .gitignore
+
+# Verify not tracked
+git status
+```
+
+### Credential Rotation
+
+- Rotate `DJANGO_SECRET_KEY` periodically (requires user re-login)
+- Rotate database passwords quarterly
+- Rotate API keys when team members leave
+- Use unique credentials per environment (dev/staging/prod)
+
+### Secrets Management
+
+For enhanced security, consider using:
+- **AWS Secrets Manager** - Store credentials in AWS
+- **HashiCorp Vault** - Centralized secrets management
+- **Environment-specific encryption** - Encrypt .env files at rest
+
+## Validation
+
+Verify your environment configuration:
+
+### Django Deployment Checks
+
+```bash
+# Run all deployment checks
+python manage.py check --deploy
+```
+
+This validates (config/checks.py:1):
+- ✓ DEBUG is disabled
+- ✓ SECRET_KEY is secure (length, uniqueness)
+- ✓ Required environment variables are set
+- ✓ Database connectivity
+- ✓ Redis connectivity
+- ✓ Storage credentials (S3/R2)
+- ✓ ALLOWED_HOSTS configured
+- ✓ SSL/HTTPS settings
+
+### Manual Verification
+
+```bash
+# Check required variables are set
+grep -E '^(DJANGO_SECRET_KEY|DATABASE_URL|REDIS_URL)' .env
+
+# Verify no default values
+grep -i "change" .env
+grep -i "your-" .env
+
+# Test database connection
+python manage.py dbshell
+
+# Test Redis connection
+redis-cli ping
+```
+
+## Environment Variables Reference
+
+### Quick Reference Table
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `DJANGO_SECRET_KEY` | Yes | - | Cryptographic signing key |
+| `DJANGO_DEBUG` | Yes | False | Debug mode (must be False) |
+| `DJANGO_ALLOWED_HOSTS` | Yes | - | Allowed domain names |
+| `DATABASE_URL` | Yes | - | PostgreSQL connection string |
+| `REDIS_URL` | Yes | - | Redis connection string |
+| `SENDGRID_API_KEY` | Recommended | - | Email delivery API key |
+| `SENTRY_DSN` | Recommended | - | Error tracking DSN |
+| `STORAGE_BACKEND` | Yes | aws | Storage backend (aws/r2) |
+| `DJANGO_AWS_*` | If using S3 | - | AWS S3 credentials |
+| `CLOUDFLARE_*` | If using R2 | - | Cloudflare R2 credentials |
+| `FKA_API_IP` | Optional | - | FKAPI server address |
+
+See deploy/env.example:1 for the complete list with descriptions.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Docker Deployment" icon="docker" href="/deployment/docker-production">
+    Deploy with Docker Compose using environment files
+  </Card>
+  <Card title="Bare Metal Deployment" icon="server" href="/deployment/bare-metal">
+    Deploy on VPS with environment file
+  </Card>
+  <Card title="Production Checklist" icon="check" href="/deployment/production-checklist">
+    Verify configuration with deployment checklist
+  </Card>
+</CardGroup>

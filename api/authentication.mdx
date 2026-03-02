@@ -1,0 +1,344 @@
+---
+title: API Authentication
+description: Authenticate your API requests using token-based authentication
+---
+
+## Overview
+
+FootyCollect API uses **token-based authentication** provided by Django REST Framework. Each user can have a unique authentication token that must be included in the HTTP headers for protected endpoints.
+
+## Authentication Methods
+
+The API supports two authentication methods:
+
+| Method | Use Case | Implementation |
+|--------|----------|----------------|
+| **Token Authentication** | API clients, mobile apps | `rest_framework.authentication.TokenAuthentication` |
+| **Session Authentication** | Browser-based requests | `rest_framework.authentication.SessionAuthentication` |
+
+<Note>
+Most API clients should use **Token Authentication**. Session authentication is primarily for browser-based interactions and the Django admin interface.
+</Note>
+
+## Obtaining an Authentication Token
+
+To obtain an authentication token, send a POST request to the token endpoint with your username and password.
+
+### Endpoint
+
+```
+POST /api/auth-token/
+```
+
+### Request
+
+<CodeGroup>
+```bash curl
+curl -X POST https://your-domain.com/api/auth-token/ \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "your_username",
+    "password": "your_password"
+  }'
+```
+
+```python Python
+import requests
+
+url = "https://your-domain.com/api/auth-token/"
+data = {
+    "username": "your_username",
+    "password": "your_password"
+}
+
+response = requests.post(url, json=data)
+token_data = response.json()
+print(token_data["token"])
+```
+
+```javascript JavaScript
+fetch('https://your-domain.com/api/auth-token/', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+  },
+  body: JSON.stringify({
+    username: 'your_username',
+    password: 'your_password'
+  })
+})
+.then(response => response.json())
+.then(data => console.log(data.token));
+```
+</CodeGroup>
+
+### Response
+
+**Success (200 OK)**
+
+```json
+{
+  "token": "9944b09199c62bcf9418ad846dd0e4bbdfc6ee4b"
+}
+```
+
+**Error (400 Bad Request)**
+
+```json
+{
+  "non_field_errors": [
+    "Unable to log in with provided credentials."
+  ]
+}
+```
+
+<Warning>
+Store your authentication token securely. Never expose tokens in client-side code, version control, or public repositories.
+</Warning>
+
+## Using the Authentication Token
+
+Once you have a token, include it in the `Authorization` header of your API requests using the `Token` scheme.
+
+### Header Format
+
+```
+Authorization: Token <your-token-here>
+```
+
+### Example Requests
+
+<CodeGroup>
+```bash curl
+curl -X GET https://your-domain.com/api/users/me/ \
+  -H "Authorization: Token 9944b09199c62bcf9418ad846dd0e4bbdfc6ee4b"
+```
+
+```python Python
+import requests
+
+url = "https://your-domain.com/api/users/me/"
+headers = {
+    "Authorization": "Token 9944b09199c62bcf9418ad846dd0e4bbdfc6ee4b"
+}
+
+response = requests.get(url, headers=headers)
+user_data = response.json()
+print(user_data)
+```
+
+```javascript JavaScript
+fetch('https://your-domain.com/api/users/me/', {
+  method: 'GET',
+  headers: {
+    'Authorization': 'Token 9944b09199c62bcf9418ad846dd0e4bbdfc6ee4b'
+  }
+})
+.then(response => response.json())
+.then(data => console.log(data));
+```
+</CodeGroup>
+
+### Response
+
+```json
+{
+  "username": "demo_user",
+  "name": "Demo User",
+  "url": "https://your-domain.com/api/users/demo_user/"
+}
+```
+
+## Authentication Errors
+
+### Missing Token
+
+If you attempt to access a protected endpoint without a token:
+
+**Response (401 Unauthorized)**
+
+```json
+{
+  "detail": "Authentication credentials were not provided."
+}
+```
+
+### Invalid Token
+
+If you provide an invalid or expired token:
+
+**Response (401 Unauthorized)**
+
+```json
+{
+  "detail": "Invalid token."
+}
+```
+
+### Insufficient Permissions
+
+If your token is valid but you lack permissions:
+
+**Response (403 Forbidden)**
+
+```json
+{
+  "detail": "You do not have permission to perform this action."
+}
+```
+
+## Django Allauth Integration
+
+FootyCollect uses **django-allauth** for account management, which provides:
+
+- Email verification for new accounts
+- Password reset functionality
+- Social authentication (Google OAuth)
+- Multi-factor authentication (MFA) support
+- Account lockout after failed login attempts
+
+### Account Security
+
+The following security measures are enforced:
+
+| Feature | Configuration |
+|---------|---------------|
+| **Email Verification** | Mandatory for new accounts (`ACCOUNT_EMAIL_VERIFICATION = "mandatory"`) |
+| **Login Rate Limiting** | 5 failed attempts per 5 minutes (`ACCOUNT_RATE_LIMITS = {"login_failed": "5/5m"}`) |
+| **Password Requirements** | Minimum 8 characters, not similar to username, not commonly used |
+
+<Note>
+API token authentication bypasses some django-allauth features like MFA. For maximum security, ensure tokens are stored securely and rotated regularly.
+</Note>
+
+## Token Management
+
+### Token Persistence
+
+Tokens are stored in the database and persist until explicitly deleted. Each user has one token that remains valid indefinitely unless revoked.
+
+### Regenerating Tokens
+
+To regenerate a token (e.g., if compromised), delete the existing token through the Django admin interface:
+
+1. Navigate to `/admin/authtoken/tokenproxy/`
+2. Find the user's token
+3. Delete it
+4. Obtain a new token via `/api/auth-token/`
+
+<Warning>
+Deleting a token will immediately invalidate all API requests using that token. Ensure your applications are updated with the new token.
+</Warning>
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Store tokens securely">
+    - Use environment variables or secure credential storage
+    - Never commit tokens to version control
+    - Never expose tokens in client-side code
+    - Use HTTPS to prevent token interception
+  </Accordion>
+
+  <Accordion title="Rotate tokens regularly">
+    - Implement token rotation for long-running applications
+    - Regenerate tokens if you suspect compromise
+    - Delete tokens for deactivated users
+  </Accordion>
+
+  <Accordion title="Handle token expiration gracefully">
+    - Implement proper error handling for 401 responses
+    - Provide a mechanism to reauthenticate
+    - Log authentication failures for monitoring
+  </Accordion>
+
+  <Accordion title="Use HTTPS in production">
+    - Always use HTTPS to encrypt token transmission
+    - Configure `SECURE_SSL_REDIRECT = True` in Django settings
+    - Set appropriate security headers
+  </Accordion>
+</AccordionGroup>
+
+## Example: Complete Authentication Flow
+
+Here's a complete example demonstrating authentication and API usage:
+
+<CodeGroup>
+```python Python Client
+import requests
+from typing import Optional
+
+class FootyCollectClient:
+    def __init__(self, base_url: str):
+        self.base_url = base_url
+        self.token: Optional[str] = None
+    
+    def authenticate(self, username: str, password: str) -> bool:
+        """Obtain authentication token."""
+        url = f"{self.base_url}/api/auth-token/"
+        response = requests.post(url, json={
+            "username": username,
+            "password": password
+        })
+        
+        if response.status_code == 200:
+            self.token = response.json()["token"]
+            return True
+        return False
+    
+    def get_headers(self) -> dict:
+        """Get headers with authentication token."""
+        if not self.token:
+            raise ValueError("Not authenticated. Call authenticate() first.")
+        return {"Authorization": f"Token {self.token}"}
+    
+    def get_current_user(self) -> dict:
+        """Get current authenticated user."""
+        url = f"{self.base_url}/api/users/me/"
+        response = requests.get(url, headers=self.get_headers())
+        response.raise_for_status()
+        return response.json()
+
+# Usage
+client = FootyCollectClient("https://your-domain.com")
+if client.authenticate("demo_user", "password123"):
+    user = client.get_current_user()
+    print(f"Authenticated as: {user['username']}")
+```
+
+```bash Shell Script
+#!/bin/bash
+
+# Configuration
+BASE_URL="https://your-domain.com"
+USERNAME="demo_user"
+PASSWORD="password123"
+
+# Obtain token
+TOKEN_RESPONSE=$(curl -s -X POST "$BASE_URL/api/auth-token/" \
+  -H "Content-Type: application/json" \
+  -d '{"username":"'$USERNAME'","password":"'$PASSWORD'"}')
+
+TOKEN=$(echo $TOKEN_RESPONSE | jq -r '.token')
+
+if [ "$TOKEN" == "null" ]; then
+  echo "Authentication failed"
+  exit 1
+fi
+
+echo "Token obtained: $TOKEN"
+
+# Use token to get current user
+USER_RESPONSE=$(curl -s -X GET "$BASE_URL/api/users/me/" \
+  -H "Authorization: Token $TOKEN")
+
+echo "Current user: $USER_RESPONSE"
+```
+</CodeGroup>
+
+## Next Steps
+
+Now that you understand authentication, learn about:
+
+- [Rate Limiting](/api/rate-limiting) - Understanding API rate limits
+- [API Introduction](/api/introduction) - Available endpoints and usage

@@ -1,0 +1,427 @@
+---
+title: Managing Photos
+description: Upload, organize, and optimize photos for your football memorabilia collection
+---
+
+Photos bring your collection to life. FootyCollect provides powerful photo management features including automatic optimization, reordering, captions, and background processing.
+
+## Uploading Photos
+
+FootyCollect supports multiple ways to upload photos to your items.
+
+### During Item Creation
+
+When adding a new item, you can upload photos directly:
+
+<Steps>
+  <Step title="Access the Photo Upload Area">
+    In the item creation form, locate the photo upload section. You'll see a dropzone area for uploading images.
+  </Step>
+
+  <Step title="Upload Your Photos">
+    **Method 1: Click to Browse**
+    - Click the upload area
+    - Select one or multiple image files
+    - Supported formats: JPG, PNG, WEBP, and other standard image formats
+
+    **Method 2: Drag and Drop**
+    - Drag image files from your computer
+    - Drop them onto the upload area
+    - Multiple files can be uploaded at once
+  </Step>
+
+  <Step title="Monitor Upload Progress">
+    Each photo shows:
+    - Upload progress bar
+    - Thumbnail preview
+    - File name and size
+
+    Photos are uploaded individually to the server and stored temporarily as orphaned photos until you save the item.
+  </Step>
+</Steps>
+
+<Note>
+  Photos uploaded during creation are associated with your user account but not yet linked to a specific item. When you save the item, they're automatically associated. If you cancel creation, orphaned photos are cleaned up automatically by a scheduled task.
+</Note>
+
+### Adding Photos to Existing Items
+
+You can add more photos to items already in your collection:
+
+1. Navigate to the item detail page
+2. Click "Add Photos" or "Edit Photos"
+3. Upload using the same drag-and-drop or browse interface
+4. New photos are added with automatic ordering
+
+### Photo Limitations
+
+| Limit | Value | Notes |
+|-------|-------|-------|
+| **Max Photos Per Item** | 10 | Configurable via `MAX_PHOTOS` |
+| **Upload Limit (Demo)** | Varies | Demo instances may have storage limits |
+| **File Size** | No hard limit | Large files are automatically optimized |
+| **Allowed Formats** | JPG, PNG, WEBP, etc. | Standard image formats |
+
+<Warning>
+  Demo mode enforces upload limits. If you see "Upload limit exceeded" errors, delete some photos to free up space. The error message shows your current usage vs. the limit.
+</Warning>
+
+## Photo Processing and Optimization
+
+FootyCollect automatically optimizes all uploaded photos for better performance.
+
+### Automatic AVIF Conversion
+
+When you upload a photo:
+
+<Steps>
+  <Step title="Initial Upload">
+    The original image is saved to the `item_photos/` directory. The Photo model stores:
+    - `image` - Original uploaded file
+    - `image_avif` - Optimized AVIF version (initially empty)
+    - `user` - Your user ID (for orphan tracking)
+    - `order` - Display order
+    - `caption` - Optional caption
+  </Step>
+
+  <Step title="Background Processing">
+    A Celery task (`process_photo_to_avif`) is automatically queued:
+    ```python
+    process_photo_to_avif.delay(photo.pk)
+    ```
+
+    This task:
+    - Runs asynchronously in the background
+    - Converts the original image to AVIF format
+    - Stores the optimized version in `item_photos_avif/`
+    - AVIF format provides superior compression (smaller files, same quality)
+  </Step>
+
+  <Step title="Processing Status Tracking">
+    The item's `is_processing_photos` flag is set to `True` while photos are being optimized. You can check processing status via:
+    
+    **Endpoint:** `/collection/items/{item_id}/photos/status/`
+    
+    **Returns:**
+    ```json
+    {
+      "is_processing": true,
+      "has_photos": true,
+      "photo_count": 5,
+      "photos_processing": [123, 124],
+      "all_processed": false
+    }
+    ```
+  </Step>
+
+  <Step title="Completion">
+    When all photos are processed:
+    - `is_processing_photos` is set to `False`
+    - The item's draft status is removed
+    - Optimized AVIF images are served to users
+    - Original images are kept as fallback
+  </Step>
+</Steps>
+
+<Tip>
+  The `check_item_photo_processing` task runs periodically to ensure all photos are processed. If processing fails, it automatically retries after 5 seconds.
+</Tip>
+
+### Thumbnail Generation
+
+FootyCollect uses ImageKit to generate thumbnails:
+
+```python
+thumbnail = ImageSpecField(
+    source='image',
+    processors=[ResizeToFill(100, 100)],
+    format='JPEG',
+    options={'quality': 75}
+)
+```
+
+- **Size:** 100x100 pixels
+- **Format:** JPEG
+- **Quality:** 75% compression
+- **Processing:** Resize and crop to fill
+
+Thumbnails are generated on-demand and cached for performance.
+
+## Reordering Photos
+
+The first photo in your collection is the main image displayed in lists and previews. You can change the order at any time.
+
+<Steps>
+  <Step title="Access Reorder Interface">
+    On the item detail or edit page, locate the photo management section. Photos are displayed in their current order.
+  </Step>
+
+  <Step title="Drag to Reorder">
+    Drag and drop photos to rearrange them:
+    - Click and hold on a photo
+    - Drag it to the new position
+    - Drop to set the new order
+
+    The interface uses AJAX to save the new order without refreshing the page.
+  </Step>
+
+  <Step title="Save New Order">
+    The reorder is saved via POST to:
+    ```
+    /collection/items/{item_id}/photos/reorder/
+    ```
+
+    With data:
+    ```
+    order[]: 456
+    order[]: 123
+    order[]: 789
+    ```
+
+    The `PhotoService.reorder_photos()` method updates the `order` field for each photo.
+  </Step>
+</Steps>
+
+<Note>
+  Photo reordering is instant. The main photo changes immediately, affecting how your item appears in collection lists and the feed.
+</Note>
+
+### Programmatic Reordering
+
+The `reorder_photos` view accepts an array of photo IDs:
+
+```python
+# POST data: order[]=456&order[]=123&order[]=789
+new_order = request.POST.getlist('order[]')
+photo_orders = [(int(photo_id), index) 
+                for index, photo_id in enumerate(new_order)]
+photo_service.reorder_photos(item, photo_orders)
+```
+
+Each photo's `order` field is updated to match its position in the array.
+
+## Adding Captions
+
+Captions help you document specific details about each photo.
+
+### How to Add Captions
+
+1. Navigate to the photo management interface
+2. Click on a photo or its caption field
+3. Enter descriptive text (max 255 characters)
+4. Save to update the photo record
+
+### Caption Best Practices
+
+<Tip>
+  Use captions to note:
+  - Photo angles ("Front view", "Back with nameset", "Close-up of sponsor")
+  - Condition details ("Minor stain on collar", "Fading on sleeve")
+  - Special features ("Signed by player", "Match-worn authentication tag")
+  - Context ("Photo from 2023 match", "Before cleaning")
+</Tip>
+
+### Caption Storage
+
+Captions are stored in the `Photo.caption` field:
+
+```python
+class Photo(models.Model):
+    image = models.ImageField(upload_to='item_photos/')
+    caption = models.CharField(max_length=255, blank=True)
+    order = models.PositiveIntegerField(default=0)
+```
+
+## Deleting Photos
+
+Remove photos from your collection when needed.
+
+<Steps>
+  <Step title="Select Photo to Delete">
+    In the photo management interface, click the delete button (trash icon) on the photo you want to remove.
+  </Step>
+
+  <Step title="Confirm Deletion">
+    Confirm the deletion when prompted. This action cannot be undone.
+  </Step>
+
+  <Step title="Files Removed from Storage">
+    The `Photo.delete()` method:
+    - Removes the database record
+    - Deletes the original image file from `item_photos/`
+    - Deletes the AVIF version from `item_photos_avif/`
+    - Cleans up storage to free space
+
+    ```python
+    # From models.py
+    def delete(self, *args, **kwargs):
+        # Store file names before deletion
+        image_name = self.image.name if self.image else None
+        avif_name = self.image_avif.name if self.image_avif else None
+        
+        # Call parent delete to remove from database
+        super().delete(*args, **kwargs)
+        
+        # Remove files from storage
+        if image_name and image_storage:
+            if image_storage.exists(image_name):
+                image_storage.delete(image_name)
+        # ... (same for AVIF)
+    ```
+  </Step>
+</Steps>
+
+<Warning>
+  Deleting a photo is permanent. The files are removed from storage and cannot be recovered. Make sure you have backups if needed.
+</Warning>
+
+## External Image Handling
+
+When using FKAPI integration, FootyCollect can download and import images from the Football Kit Archive.
+
+### How It Works
+
+<Steps>
+  <Step title="Image URLs Provided">
+    When you select a kit from FKAPI search:
+    - `main_img_url` - Primary kit image URL
+    - `external_image_urls` - Comma-separated additional image URLs
+
+    These are hidden fields in the form.
+  </Step>
+
+  <Step title="Image Proxying">
+    External images are proxied through FootyCollect to handle hotlink protection:
+    
+    **Proxy Endpoint:** `/collection/proxy-image/?url={encoded_url}`
+    
+    The proxy:
+    - Validates the URL is from allowed hosts (`cdn.footballkitarchive.com`, etc.)
+    - Adds proper `Referer` header to bypass hotlink protection
+    - Limits image size (10MB max)
+    - Streams the image to the browser
+  </Step>
+
+  <Step title="Background Download">
+    When you save the item, external images are downloaded asynchronously:
+    - Main image is downloaded first (order = 0)
+    - Additional images follow (order = 1, 2, 3...)
+    - Each is saved as a Photo record
+    - AVIF processing is queued for each photo
+  </Step>
+
+  <Step title="Photo Association">
+    Downloaded photos are associated with the item:
+    - `content_type` = BaseItem content type
+    - `object_id` = Item's ID
+    - `user` = Your user ID
+
+    Your uploaded photos are added after external images with the correct order offset.
+  </Step>
+</Steps>
+
+<Note>
+  External image downloads happen in the background. The item is created immediately, and photos appear as they're downloaded and processed.
+</Note>
+
+## Orphaned Photo Cleanup
+
+FootyCollect automatically manages temporary photos that aren't associated with items.
+
+### What Are Orphaned Photos?
+
+Photos are "orphaned" when:
+- Uploaded during item creation but the item wasn't saved
+- Associated with a user but not linked to any item (`object_id` is NULL)
+- Left over from canceled or failed item creation
+
+### Automatic Cleanup
+
+A scheduled Celery task runs periodically to clean up orphaned photos:
+
+```python
+# Setup with: python manage.py setup_beat_schedule
+# Runs every 24 hours (configurable in Django Admin)
+```
+
+The cleanup task:
+1. Finds photos where `object_id IS NULL` and `user IS NOT NULL`
+2. Checks if the photo is older than the retention period (e.g., 24 hours)
+3. Deletes the photo and its associated files
+4. Frees up storage space
+
+<Tip>
+  You can adjust cleanup frequency in Django Admin under **django_celery_beat** → **Periodic tasks**. The default is once per day.
+</Tip>
+
+## Photo Service Layer
+
+FootyCollect uses a service layer for photo operations:
+
+```python
+from footycollect.collection.services import get_photo_service
+
+photo_service = get_photo_service()
+```
+
+### Available Methods
+
+| Method | Purpose |
+|--------|--------|
+| `create_photo_with_validation()` | Upload photo with validation |
+| `reorder_photos()` | Change photo order |
+| `delete_photo()` | Remove photo and files |
+| `process_external_images()` | Download from URLs |
+| `check_processing_status()` | Get AVIF conversion status |
+
+## Best Practices
+
+<Tip>
+  **Upload high-quality originals** - FootyCollect optimizes them automatically. Don't pre-compress or resize images.
+</Tip>
+
+<Tip>
+  **Use descriptive captions** - Help future you remember important details about each photo.
+</Tip>
+
+<Tip>
+  **Main photo matters** - The first photo represents your item in lists. Choose a clear, well-lit front view.
+</Tip>
+
+<Tip>
+  **Document condition** - Photograph any damage, wear, or special features. Use captions to note details.
+</Tip>
+
+<Warning>
+  Demo mode has upload limits. Monitor your usage and delete unnecessary photos to stay within quota.
+</Warning>
+
+## Troubleshooting
+
+### Photos Not Processing
+
+If photos remain in "processing" state:
+1. Check the processing status endpoint for your item
+2. The system auto-retries failed processing every 120 seconds
+3. Verify Celery workers are running: `celery -A config.celery_app worker -l info`
+
+### Upload Limits
+
+If you hit upload limits in demo mode:
+1. Check current usage vs. limit (shown in error message)
+2. Delete old or unnecessary photos
+3. Consider upgrading to a production deployment (no limits)
+
+### Missing AVIF Images
+
+If optimized images aren't loading:
+1. Check if `image_avif` field has a value
+2. Verify the file exists in storage
+3. FootyCollect falls back to original image if AVIF is missing
+4. The `get_image_url()` method handles this automatically
+
+## Next Steps
+
+- [Search your collection](/guide/searching-collections) - Find items by photo, color, or details
+- [Privacy settings](/guide/privacy-settings) - Control photo visibility
+- [Adding items](/guide/adding-items) - Learn about FKAPI image import

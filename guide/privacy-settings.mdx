@@ -1,0 +1,420 @@
+---
+title: Privacy Settings
+description: Control the visibility of your collection and profile in FootyCollect
+---
+
+FootyCollect provides granular privacy controls to manage who can see your collection, profile, and individual items. Whether you want to share your collection publicly or keep it completely private, FootyCollect gives you full control.
+
+## Understanding Privacy Levels
+
+FootyCollect implements privacy at three levels:
+
+1. **Profile Privacy** - Controls visibility of your user profile
+2. **Item Privacy** - Controls visibility of individual items
+3. **Draft Status** - Items in draft mode are always private
+
+### Privacy Model
+
+```python
+# User model (Profile Privacy)
+class User(AbstractUser):
+    is_private = models.BooleanField(default=False)
+    biography = models.TextField(blank=True)
+    location = models.CharField(max_length=100, blank=True)
+    avatar = models.ImageField(upload_to=avatar_file_name, blank=True)
+    favourite_teams = models.ManyToManyField(Club, blank=True)
+
+# BaseItem model (Item Privacy)
+class BaseItem(models.Model):
+    is_private = models.BooleanField(default=False)
+    is_draft = models.BooleanField(default=True)
+    user = models.ForeignKey('users.User', on_delete=models.CASCADE)
+```
+
+## Profile Privacy
+
+Control the visibility of your entire profile and collection.
+
+### Making Your Profile Private
+
+<Steps>
+  <Step title="Access Profile Settings">
+    Navigate to your profile page and click "Edit Profile" or go directly to `/users/~update/`.
+  </Step>
+
+  <Step title="Toggle Privacy">
+    Find the "Private Profile" setting:
+    - **Checked** - Your profile and all items are private
+    - **Unchecked** - Your profile is public (item privacy is per-item)
+
+    When enabled, your `is_private` flag is set to `True`.
+  </Step>
+
+  <Step title="Save Changes">
+    Click "Save" to apply the privacy setting. Changes take effect immediately.
+  </Step>
+</Steps>
+
+### What Private Profiles Hide
+
+When your profile is private:
+
+| Feature | Visibility |
+|---------|------------|
+| **Profile Page** | Only you can view |
+| **Biography** | Hidden from others |
+| **Location** | Hidden from others |
+| **Avatar** | Hidden from others (default avatar shown) |
+| **Favourite Teams** | Hidden from others |
+| **Collection Items** | Only you can view |
+| **Feed Presence** | Your items don't appear in public feeds |
+
+<Warning>
+  Setting your profile to private overrides individual item privacy settings. All items become private regardless of their individual privacy flags.
+</Warning>
+
+### Public Profiles
+
+Public profiles (default) allow others to:
+- View your profile information
+- See your biography and location
+- View your avatar
+- See your favourite teams
+- Browse your public items (items with `is_private=False`)
+
+You still control item-level privacy even with a public profile.
+
+## Item Privacy
+
+Control visibility for individual items in your collection.
+
+### Setting Item Privacy
+
+<Steps>
+  <Step title="Create or Edit Item">
+    When adding or editing an item, locate the privacy controls in the form.
+  </Step>
+
+  <Step title="Set Privacy Flag">
+    Toggle the "Private Item" checkbox:
+    - **Checked** - Item is private (only you can see it)
+    - **Unchecked** - Item is public (visible based on profile privacy)
+
+    The `is_private` field is updated on the BaseItem.
+  </Step>
+
+  <Step title="Save Item">
+    Save the item to apply privacy settings.
+  </Step>
+</Steps>
+
+### Public vs Private Items
+
+**Public Items** (`is_private=False`):
+- Visible in public feeds (if profile is public)
+- Visible on your public profile page
+- Searchable by others
+- Photos visible in public views
+
+**Private Items** (`is_private=True`):
+- Only visible to you
+- Never appear in public feeds
+- Not searchable by others
+- Photos only visible to you
+
+<Note>
+  Item privacy is independent of profile privacy UNLESS your profile is private. Private profiles force all items to be private.
+</Note>
+
+### Bulk Privacy Updates
+
+Update privacy for multiple items at once:
+
+1. Navigate to your collection list
+2. Use bulk edit mode (if available)
+3. Select items to update
+4. Apply privacy setting to all selected items
+
+## Draft Status
+
+Items in draft mode have special privacy handling.
+
+### What Are Drafts?
+
+Drafts are items that:
+- Are being created but not finalized
+- Have `is_draft=True` flag set
+- Are automatically private regardless of privacy settings
+- Often have photos still being processed
+
+### Draft Behavior
+
+```python
+class BaseItemManager(models.Manager):
+    def public(self):
+        return self.filter(is_private=False, is_draft=False)
+    
+    def drafts(self):
+        return self.filter(is_draft=True)
+```
+
+Drafts are:
+- Always private (never in public feeds)
+- Only visible to the owner
+- Excluded from public querysets
+
+### When Items Leave Draft Status
+
+Items automatically transition from draft to published when:
+
+1. All photos are uploaded and processed
+2. AVIF conversion completes for all photos
+3. The `is_processing_photos` flag is set to `False`
+4. The system sets `is_draft=False`
+
+<Steps>
+  <Step title="Item Creation">
+    When you create an item, it starts as a draft:
+    ```python
+    is_draft = models.BooleanField(default=True)
+    ```
+  </Step>
+
+  <Step title="Photo Processing">
+    Photos are uploaded and processed in the background:
+    - `is_processing_photos=True` while photos convert to AVIF
+    - Draft status remains until processing completes
+  </Step>
+
+  <Step title="Automatic Publishing">
+    When all photos are processed:
+    ```python
+    # From jersey_views.py
+    self.object.is_draft = False
+    self.object.save()
+    ```
+
+    The item becomes visible (subject to privacy settings).
+  </Step>
+</Steps>
+
+<Tip>
+  You can manually mark items as drafts to hide them temporarily. This is useful for items you're still cataloguing or photographing.
+</Tip>
+
+## Privacy in Different Views
+
+How privacy settings affect various parts of FootyCollect.
+
+### Collection List View
+
+Your collection list (`/collection/items/`) shows:
+- **Your view:** All items (public, private, drafts)
+- **Others' view (if profile public):** Only public, non-draft items
+- **Others' view (if profile private):** No access
+
+### Feed View
+
+The feed (`/collection/feed/`) displays:
+- **Your items:** Based on your privacy settings
+- **Others' items:** Only public, non-draft items from public profiles
+- **Filtering:** Uses `BaseItem.objects.public()` queryset
+
+### Item Detail View
+
+Accessing `/collection/items/{id}/`:
+- **Owner:** Always can view
+- **Others (public item):** Can view if profile is public
+- **Others (private item):** Access denied
+- **Drafts:** Only owner can view
+
+### Search Results
+
+Search respects privacy:
+- Your searches include all your items
+- Public searches exclude private items and drafts
+- Profile privacy overrides item privacy
+
+<Note>
+  Privacy checks are enforced at the database query level using custom managers, ensuring private items never leak into public views.
+</Note>
+
+## Privacy Best Practices
+
+<Tip>
+  **Start private, go public gradually** - Create items as private while you're building your collection, then make select items public when ready.
+</Tip>
+
+<Tip>
+  **Use item-level privacy for sensitive items** - Keep your profile public but mark valuable or personal items as private.
+</Tip>
+
+<Tip>
+  **Review privacy before sharing** - Check your privacy settings before sharing your profile URL with others.
+</Tip>
+
+<Tip>
+  **Understand draft behavior** - New items are drafts by default. They become public/private based on your settings once photos are processed.
+</Tip>
+
+## Sharing Your Collection
+
+Once you've set up privacy, you can share your collection.
+
+### Public Profile URL
+
+Your profile URL is:
+```
+/users/{username}/
+```
+
+Share this URL to let others view your:
+- Public profile information
+- Public collection items
+- Activity feed (public items only)
+
+### Sharing Individual Items
+
+Share specific public items using:
+```
+/collection/items/{item_id}/
+```
+
+The item must be:
+- Not private (`is_private=False`)
+- Not a draft (`is_draft=False`)
+- From a public profile
+
+Others can view the item's:
+- All photos
+- Full details (club, season, brand, etc.)
+- Description and metadata
+- Condition and special attributes
+
+<Warning>
+  Private items and items from private profiles return "Access Denied" or 404 errors when accessed by non-owners.
+</Warning>
+
+## API Privacy
+
+If using FootyCollect's REST API, privacy is enforced:
+
+### Public Endpoints
+
+```
+GET /api/items/
+GET /api/users/{id}/
+GET /api/feed/
+```
+
+These endpoints:
+- Return only public data
+- Filter out private items and profiles
+- Respect draft status
+
+### Authenticated Endpoints
+
+```
+GET /api/my-collection/
+POST /api/items/
+PATCH /api/items/{id}/
+```
+
+These endpoints:
+- Require authentication
+- Show all your items (public and private)
+- Allow privacy modification via `is_private` field
+
+<Note>
+  API documentation is available at `/api/docs/` (Swagger UI) and `/api/schema/` (OpenAPI spec). Privacy rules are documented in each endpoint's specification.
+</Note>
+
+## Advanced Privacy Configuration
+
+### Privacy at Database Level
+
+FootyCollect uses database indexes for efficient privacy queries:
+
+```python
+class Meta:
+    indexes = [
+        models.Index(fields=['user', 'is_private', 'is_draft']),
+    ]
+```
+
+This ensures fast filtering of public/private items even in large collections.
+
+### Custom Privacy Managers
+
+```python
+# BaseItem manager
+BaseItem.objects.public()  # is_private=False, is_draft=False
+BaseItem.objects.private()  # is_private=True
+BaseItem.objects.drafts()  # is_draft=True
+
+# MTI model manager (Jersey, Shorts, etc.)
+Jersey.objects.public()  # base_item__is_private=False, base_item__is_draft=False
+Jersey.objects.private()  # base_item__is_private=True
+Jersey.objects.drafts()  # base_item__is_draft=True
+```
+
+These managers automatically filter querysets based on privacy flags.
+
+### Privacy in Templates
+
+Templates can check privacy:
+
+```django
+{% if item.is_private %}
+  <span class="badge bg-warning">Private</span>
+{% endif %}
+
+{% if item.is_draft %}
+  <span class="badge bg-secondary">Draft</span>
+{% endif %}
+```
+
+## Troubleshooting Privacy
+
+### Items Not Appearing in Feed
+
+If your items don't appear in public feeds:
+1. Check `is_private` flag on the item
+2. Check `is_draft` flag on the item
+3. Verify your profile is not private (`user.is_private=False`)
+4. Ensure photos have finished processing
+
+### Cannot View Shared Item
+
+If others can't view your shared item:
+1. Confirm the item is public (`is_private=False`)
+2. Verify the item is not a draft (`is_draft=False`)
+3. Check your profile privacy setting
+4. Clear any caches that might be stale
+
+### Privacy Changes Not Applying
+
+If privacy changes don't take effect:
+1. Verify the item saved successfully
+2. Check for validation errors
+3. Clear browser cache and refresh
+4. Check if view-level caching is active (cache invalidates automatically but may take up to 15 minutes)
+
+## Privacy and Demo Mode
+
+Demo instances have special considerations:
+
+- Database resets every 3 hours
+- All data is visible to demo users
+- Privacy settings are reset with the database
+- Don't add sensitive or private items to demo instances
+
+<Warning>
+  Demo instances are NOT suitable for private collections. Use demo mode only for testing features, not for storing real collection data.
+</Warning>
+
+## Next Steps
+
+- [Adding items](/guide/adding-items) - Create items with privacy settings
+- [Managing photos](/guide/managing-photos) - Photo visibility follows item privacy
+- [Searching collections](/guide/searching-collections) - Understand how privacy affects search

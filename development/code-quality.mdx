@@ -1,0 +1,405 @@
+---
+title: Code Quality
+description: Code quality tools, standards, and linting for FootyCollect
+---
+
+FootyCollect maintains high code quality standards using modern Python tooling. All code is automatically checked for formatting, linting, and type errors.
+
+## Quick Reference
+
+<CodeGroup>
+```bash Format code
+ruff format .
+```
+
+```bash Lint code
+ruff check .
+```
+
+```bash Fix linting issues
+ruff check . --fix
+```
+
+```bash Type checking
+mypy footycollect
+```
+
+```bash Run all checks
+ruff format . && ruff check . && mypy footycollect
+```
+</CodeGroup>
+
+## Tools
+
+### Ruff
+
+Ruff is an extremely fast Python linter and formatter, replacing Black, isort, flake8, and more.
+
+<AccordionGroup>
+  <Accordion title="Formatting">
+    Ruff formats code to a consistent style:
+    
+    ```bash
+    # Format all Python files
+    ruff format .
+    
+    # Check formatting without making changes
+    ruff format . --check
+    
+    # Format specific file
+    ruff format footycollect/collection/models.py
+    ```
+    
+    Configuration in `pyproject.toml`:
+    ```toml
+    [tool.ruff]
+    target-version = "py312"
+    line-length = 119
+    extend-exclude = [
+        "*/migrations/*.py",
+        "staticfiles/*",
+        "*/templates/*",
+    ]
+    ```
+  </Accordion>
+  
+  <Accordion title="Linting">
+    Ruff checks for code quality issues:
+    
+    ```bash
+    # Check all files
+    ruff check .
+    
+    # Fix auto-fixable issues
+    ruff check . --fix
+    
+    # Show fixes without applying
+    ruff check . --diff
+    ```
+    
+    Enabled rule sets:
+    - `F` - Pyflakes
+    - `E`, `W` - pycodestyle
+    - `I` - isort (import sorting)
+    - `N` - pep8-naming
+    - `UP` - pyupgrade
+    - `S` - flake8-bandit (security)
+    - `B` - flake8-bugbear
+    - `DJ` - flake8-django
+    - `PT` - flake8-pytest-style
+    - `PL` - Pylint
+    - `RUF` - Ruff-specific rules
+    
+    And many more! See `pyproject.toml` for the full list.
+  </Accordion>
+  
+  <Accordion title="Per-File Ignores">
+    Some rules are disabled for specific files:
+    
+    ```toml pyproject.toml
+    [tool.ruff.lint.per-file-ignores]
+    # Ignore in test files
+    "**/tests/**/*.py" = ["SLF001", "S105", "S106"]
+    "**/test_*.py" = ["SLF001", "S105", "S106"]
+    
+    # Ignore in settings
+    "config/settings/*.py" = ["F403"]
+    
+    # Ignore in complex E2E tests
+    "footycollect/collection/tests/test_e2e_*.py" = [
+        "PT009",
+        "FBT003",
+        "BLE001",
+        "PLR0915",
+    ]
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### mypy
+
+Static type checker for Python:
+
+```bash
+# Type check the entire project
+mypy footycollect
+
+# Type check specific app
+mypy footycollect/collection
+
+# Type check with verbose output
+mypy footycollect --verbose
+```
+
+#### Configuration
+
+```toml pyproject.toml
+[tool.mypy]
+python_version = "3.12"
+check_untyped_defs = true
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unused_configs = true
+plugins = [
+    "mypy_django_plugin.main",
+    "mypy_drf_plugin.main",
+]
+
+[[tool.mypy.overrides]]
+# Django migrations should not produce errors
+module = "*.migrations.*"
+ignore_errors = true
+
+[tool.django-stubs]
+django_settings_module = "config.settings.test"
+```
+
+<Note>
+mypy uses Django-specific plugins (`mypy_django_plugin` and `mypy_drf_plugin`) to understand Django models and DRF serializers.
+</Note>
+
+## Pre-commit Hooks
+
+Pre-commit hooks automatically run checks before each commit:
+
+### Setup
+
+<Steps>
+  <Step title="Install pre-commit">
+    ```bash
+    pip install pre-commit
+    ```
+  </Step>
+  
+  <Step title="Install hooks">
+    ```bash
+    pre-commit install
+    ```
+  </Step>
+  
+  <Step title="Run manually (optional)">
+    ```bash
+    # Run on all files
+    pre-commit run --all-files
+    
+    # Run on staged files only
+    pre-commit run
+    ```
+  </Step>
+</Steps>
+
+### Configured Hooks
+
+From `.pre-commit-config.yaml`:
+
+<AccordionGroup>
+  <Accordion title="Standard Checks">
+    ```yaml
+    - trailing-whitespace      # Remove trailing whitespace
+    - end-of-file-fixer       # Ensure files end with newline
+    - check-json              # Validate JSON files
+    - check-toml              # Validate TOML files
+    - check-yaml              # Validate YAML files
+    - debug-statements        # Detect debug statements
+    - check-builtin-literals  # Check builtin type constructor use
+    - check-case-conflict     # Check for case conflicts
+    - check-docstring-first   # Check docstring position
+    - detect-private-key      # Detect private keys
+    ```
+  </Accordion>
+  
+  <Accordion title="Django Upgrade">
+    Automatically upgrade Django code to target version:
+    
+    ```yaml
+    - repo: https://github.com/adamchainz/django-upgrade
+      rev: '1.20.0'
+      hooks:
+        - id: django-upgrade
+          args: ['--target-version', '5.0']
+    ```
+  </Accordion>
+  
+  <Accordion title="Ruff">
+    ```yaml
+    - repo: https://github.com/astral-sh/ruff-pre-commit
+      rev: v0.6.2
+      hooks:
+        # Linter
+        - id: ruff
+          args: [--fix, --exit-non-zero-on-fix]
+        # Formatter
+        - id: ruff-format
+    ```
+  </Accordion>
+  
+  <Accordion title="djLint (Template Linter)">
+    Formats and lints Django templates:
+    
+    ```yaml
+    - repo: https://github.com/Riverside-Healthcare/djLint
+      rev: v1.34.1
+      hooks:
+        - id: djlint-reformat-django
+          files: ^footycollect/.*\.html$
+        - id: djlint-django
+          files: ^footycollect/.*\.html$
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Code Quality Standards
+
+### Line Length
+
+```toml
+line-length = 119
+```
+
+Maximum line length is 119 characters for code and comments.
+
+### Import Sorting
+
+Ruff automatically sorts imports (replaces isort):
+
+```python
+# Standard library
+import os
+import sys
+
+# Third-party
+import requests
+from django.conf import settings
+
+# Local
+from footycollect.collection.models import Jersey
+from footycollect.core.models import Club
+```
+
+### Naming Conventions
+
+- Classes: `PascalCase`
+- Functions/methods: `snake_case`
+- Constants: `UPPER_SNAKE_CASE`
+- Private methods: `_leading_underscore`
+
+### Django Best Practices
+
+Ruff includes Django-specific rules (`DJ` rules):
+
+- `DJ001` - Avoid using `null=True` on string-based fields
+- `DJ006` - Do not use `exclude` in `ModelForm`
+- `DJ008` - Model does not define `__str__` method
+- And more!
+
+### Security
+
+Ruff includes security checks from Bandit (`S` rules):
+
+- `S105` - Hardcoded password string
+- `S106` - Hardcoded password function argument
+- `S108` - Hardcoded `/tmp` directory
+- `S301` - Pickle usage
+
+<Warning>
+Security warnings should be carefully reviewed, not blindly ignored.
+</Warning>
+
+## CI/CD Integration
+
+Code quality checks run automatically on GitHub Actions:
+
+```yaml .github/workflows/ci.yml (example)
+- name: Lint with Ruff
+  run: ruff check .
+
+- name: Check formatting
+  run: ruff format . --check
+
+- name: Type check with mypy
+  run: mypy footycollect
+```
+
+All checks must pass before code can be merged.
+
+## IDE Integration
+
+### VS Code
+
+Install the Ruff extension:
+
+```json settings.json
+{
+  "[python]": {
+    "editor.defaultFormatter": "charliermarsh.ruff",
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.fixAll": true,
+      "source.organizeImports": true
+    }
+  },
+  "ruff.lint.args": ["--config=pyproject.toml"],
+  "mypy-type-checker.args": ["--config-file=pyproject.toml"]
+}
+```
+
+### PyCharm
+
+Configure external tools for Ruff and mypy:
+
+<Steps>
+  <Step title="Add Ruff as External Tool">
+    Settings → Tools → External Tools → Add
+    - Program: `ruff`
+    - Arguments: `check . --fix`
+  </Step>
+  
+  <Step title="Configure mypy">
+    Settings → Tools → Python Integrated Tools
+    - Type checker: mypy
+  </Step>
+</Steps>
+
+## Running All Quality Checks
+
+Before committing, run all checks:
+
+```bash
+# Activate virtual environment
+source venv/bin/activate  # or: venv\Scripts\activate on Windows
+
+# Format code
+ruff format .
+
+# Lint and fix
+ruff check . --fix
+
+# Type check
+mypy footycollect
+
+# Run tests
+pytest
+```
+
+Or use pre-commit:
+
+```bash
+pre-commit run --all-files
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Running Tests" icon="flask" href="/development/running-tests">
+    Test suite and coverage
+  </Card>
+  
+  <Card title="Project Structure" icon="folder-tree" href="/development/project-structure">
+    Understanding the codebase
+  </Card>
+  
+  <Card title="Contributing" icon="code-pull-request" href="https://github.com/sunr4y/FootyCollect">
+    Contribution guidelines
+  </Card>
+</CardGroup>

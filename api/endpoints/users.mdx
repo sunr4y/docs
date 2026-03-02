@@ -1,0 +1,466 @@
+---
+title: 'User Endpoints'
+description: 'API endpoints for managing users in FootyCollect'
+---
+
+## Overview
+
+The User API provides endpoints for retrieving and updating user information. All endpoints require authentication via token-based authentication.
+
+**Base URL**: `/api/users/`
+
+**Authentication**: Token authentication required. Include the token in the Authorization header:
+```
+Authorization: Token your_auth_token_here
+```
+
+## User Model
+
+The User model includes the following fields:
+
+<ResponseField name="username" type="string" required>
+  Unique username for the user
+</ResponseField>
+
+<ResponseField name="name" type="string">
+  Full name of the user
+</ResponseField>
+
+<ResponseField name="url" type="string">
+  API URL for the user detail endpoint
+</ResponseField>
+
+<ResponseField name="email" type="string">
+  User's email address (unique)
+</ResponseField>
+
+<ResponseField name="biography" type="string">
+  User's biography text
+</ResponseField>
+
+<ResponseField name="location" type="string">
+  User's location
+</ResponseField>
+
+<ResponseField name="avatar" type="string">
+  URL to user's avatar image
+</ResponseField>
+
+<ResponseField name="is_private" type="boolean">
+  Whether the user's profile is private
+</ResponseField>
+
+<ResponseField name="created_at" type="datetime">
+  Timestamp when the user was created
+</ResponseField>
+
+## Endpoints
+
+### List Users
+
+```http
+GET /api/users/
+```
+
+Retrieve a list of users. **Note**: This endpoint only returns the authenticated user due to queryset filtering in `footycollect/users/api/views.py:17-19`.
+
+**Authentication Required**: Yes
+
+**Response**
+
+<CodeGroup>
+```json 200 Success
+[
+  {
+    "username": "johndoe",
+    "name": "John Doe",
+    "url": "http://localhost:8000/api/users/johndoe/"
+  }
+]
+```
+
+```json 401 Unauthorized
+{
+  "detail": "Authentication credentials were not provided."
+}
+```
+</CodeGroup>
+
+**Example Request**
+
+<CodeGroup>
+```bash cURL
+curl -X GET "http://localhost:8000/api/users/" \
+  -H "Authorization: Token your_auth_token_here"
+```
+
+```python Python
+import requests
+
+url = "http://localhost:8000/api/users/"
+headers = {
+    "Authorization": "Token your_auth_token_here"
+}
+
+response = requests.get(url, headers=headers)
+print(response.json())
+```
+
+```javascript JavaScript
+fetch('http://localhost:8000/api/users/', {
+  method: 'GET',
+  headers: {
+    'Authorization': 'Token your_auth_token_here'
+  }
+})
+.then(response => response.json())
+.then(data => console.log(data));
+```
+</CodeGroup>
+
+---
+
+### Retrieve User
+
+```http
+GET /api/users/{username}/
+```
+
+Retrieve details for a specific user by username.
+
+**Authentication Required**: Yes
+
+**Path Parameters**
+
+<ParamField path="username" type="string" required>
+  The username of the user to retrieve
+</ParamField>
+
+**Response**
+
+<CodeGroup>
+```json 200 Success
+{
+  "username": "johndoe",
+  "name": "John Doe",
+  "url": "http://localhost:8000/api/users/johndoe/"
+}
+```
+
+```json 404 Not Found
+{
+  "detail": "Not found."
+}
+```
+</CodeGroup>
+
+**Example Request**
+
+<CodeGroup>
+```bash cURL
+curl -X GET "http://localhost:8000/api/users/johndoe/" \
+  -H "Authorization: Token your_auth_token_here"
+```
+
+```python Python
+import requests
+
+url = "http://localhost:8000/api/users/johndoe/"
+headers = {
+    "Authorization": "Token your_auth_token_here"
+}
+
+response = requests.get(url, headers=headers)
+print(response.json())
+```
+
+```javascript JavaScript
+fetch('http://localhost:8000/api/users/johndoe/', {
+  method: 'GET',
+  headers: {
+    'Authorization': 'Token your_auth_token_here'
+  }
+})
+.then(response => response.json())
+.then(data => console.log(data));
+```
+</CodeGroup>
+
+---
+
+### Get Current User (Me)
+
+```http
+GET /api/users/me/
+```
+
+Retrieve the authenticated user's information. This is a custom action endpoint defined in `footycollect/users/api/views.py:21-24`.
+
+**Authentication Required**: Yes
+
+**Response**
+
+<CodeGroup>
+```json 200 Success
+{
+  "username": "johndoe",
+  "name": "John Doe",
+  "url": "http://localhost:8000/api/users/johndoe/"
+}
+```
+
+```json 401 Unauthorized
+{
+  "detail": "Authentication credentials were not provided."
+}
+```
+</CodeGroup>
+
+**Example Request**
+
+<CodeGroup>
+```bash cURL
+curl -X GET "http://localhost:8000/api/users/me/" \
+  -H "Authorization: Token your_auth_token_here"
+```
+
+```python Python
+import requests
+
+url = "http://localhost:8000/api/users/me/"
+headers = {
+    "Authorization": "Token your_auth_token_here"
+}
+
+response = requests.get(url, headers=headers)
+print(response.json())
+```
+
+```javascript JavaScript
+fetch('http://localhost:8000/api/users/me/', {
+  method: 'GET',
+  headers: {
+    'Authorization': 'Token your_auth_token_here'
+  }
+})
+.then(response => response.json())
+.then(data => console.log(data));
+```
+</CodeGroup>
+
+---
+
+### Update User
+
+```http
+PUT /api/users/{username}/
+PATCH /api/users/{username}/
+```
+
+Update user information. Use `PUT` for full updates or `PATCH` for partial updates.
+
+**Authentication Required**: Yes
+
+**Path Parameters**
+
+<ParamField path="username" type="string" required>
+  The username of the user to update
+</ParamField>
+
+**Request Body**
+
+<ParamField body="username" type="string">
+  Username (must be unique)
+</ParamField>
+
+<ParamField body="name" type="string">
+  Full name of the user
+</ParamField>
+
+**Response**
+
+<CodeGroup>
+```json 200 Success
+{
+  "username": "johndoe",
+  "name": "John Doe Updated",
+  "url": "http://localhost:8000/api/users/johndoe/"
+}
+```
+
+```json 400 Bad Request
+{
+  "username": [
+    "A user with that username already exists."
+  ]
+}
+```
+</CodeGroup>
+
+**Example Request**
+
+<CodeGroup>
+```bash cURL (PATCH)
+curl -X PATCH "http://localhost:8000/api/users/johndoe/" \
+  -H "Authorization: Token your_auth_token_here" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "John Doe Updated"
+  }'
+```
+
+```python Python
+import requests
+
+url = "http://localhost:8000/api/users/johndoe/"
+headers = {
+    "Authorization": "Token your_auth_token_here",
+    "Content-Type": "application/json"
+}
+data = {
+    "name": "John Doe Updated"
+}
+
+response = requests.patch(url, headers=headers, json=data)
+print(response.json())
+```
+
+```javascript JavaScript
+fetch('http://localhost:8000/api/users/johndoe/', {
+  method: 'PATCH',
+  headers: {
+    'Authorization': 'Token your_auth_token_here',
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    name: 'John Doe Updated'
+  })
+})
+.then(response => response.json())
+.then(data => console.log(data));
+```
+</CodeGroup>
+
+---
+
+## Authentication
+
+### Obtain Auth Token
+
+```http
+POST /api/auth-token/
+```
+
+Obtain an authentication token for API access.
+
+**Authentication Required**: No
+
+**Request Body**
+
+<ParamField body="username" type="string" required>
+  User's username
+</ParamField>
+
+<ParamField body="password" type="string" required>
+  User's password
+</ParamField>
+
+**Response**
+
+<CodeGroup>
+```json 200 Success
+{
+  "token": "9944b09199c62bcf9418ad846dd0e4bbdfc6ee4b"
+}
+```
+
+```json 400 Bad Request
+{
+  "non_field_errors": [
+    "Unable to log in with provided credentials."
+  ]
+}
+```
+</CodeGroup>
+
+**Example Request**
+
+<CodeGroup>
+```bash cURL
+curl -X POST "http://localhost:8000/api/auth-token/" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "johndoe",
+    "password": "your_password"
+  }'
+```
+
+```python Python
+import requests
+
+url = "http://localhost:8000/api/auth-token/"
+data = {
+    "username": "johndoe",
+    "password": "your_password"
+}
+
+response = requests.post(url, json=data)
+token = response.json()["token"]
+print(f"Token: {token}")
+```
+
+```javascript JavaScript
+fetch('http://localhost:8000/api/auth-token/', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    username: 'johndoe',
+    password: 'your_password'
+  })
+})
+.then(response => response.json())
+.then(data => console.log('Token:', data.token));
+```
+</CodeGroup>
+
+---
+
+## Error Codes
+
+<ResponseField name="400" type="Bad Request">
+  The request was malformed or contains invalid data
+</ResponseField>
+
+<ResponseField name="401" type="Unauthorized">
+  Authentication credentials were not provided or are invalid
+</ResponseField>
+
+<ResponseField name="403" type="Forbidden">
+  You don't have permission to access this resource
+</ResponseField>
+
+<ResponseField name="404" type="Not Found">
+  The requested resource was not found
+</ResponseField>
+
+<ResponseField name="500" type="Internal Server Error">
+  An error occurred on the server
+</ResponseField>
+
+---
+
+## Notes
+
+<Note>
+  The UserViewSet uses username as the lookup field instead of the default ID. All user detail endpoints use the username in the URL path.
+</Note>
+
+<Warning>
+  The list users endpoint is filtered to only return the authenticated user. This is implemented in `footycollect/users/api/views.py:17-19` via the `get_queryset` method.
+</Warning>
+
+<Info>
+  For full interactive API documentation with the ability to test endpoints, visit `/api/docs/` when running the FootyCollect server.
+</Info>

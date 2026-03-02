@@ -1,0 +1,420 @@
+---
+title: Search & Filters
+description: Powerful search and filtering capabilities to find items in your collection quickly and efficiently
+---
+
+FootyCollect provides comprehensive search and filtering tools to help you find specific items in your collection, whether you have 10 items or 1,000. The search system supports text queries combined with multiple filters for precise results.
+
+## Quick Search
+
+The main search bar allows you to search across multiple fields:
+
+- **Item names**: Auto-generated names like "Real Madrid Home 2023-24"
+- **Club names**: Search by team name
+- **Player names**: Find jerseys by player
+- **Descriptions**: Search custom descriptions and notes
+- **Tags**: Find items by custom tags
+
+<Tip>
+Search is case-insensitive and supports partial matches. Searching for "madrid" will find "Real Madrid", "Atletico Madrid", etc.
+</Tip>
+
+## Filter Options
+
+Combine search queries with filters for precise results:
+
+### Item Type Filter
+
+Filter by specific item types:
+
+- Jerseys
+- Shorts
+- Outerwear
+- Tracksuits
+- Pants
+- Other items
+
+```python
+# Filter user's jerseys only
+items = BaseItem.objects.filter(
+    user=user,
+    item_type="jersey"
+)
+```
+
+### Club Filter
+
+Filter by club to see all items from a specific team:
+
+```python
+# Get all Real Madrid items
+items = item_service.get_items_by_club(user).filter(
+    club__name__icontains="Real Madrid"
+)
+```
+
+<CardGroup cols={2}>
+  <Card title="By Club" icon="shield">
+    View all items from a specific club organized by season
+  </Card>
+  <Card title="By Season" icon="calendar">
+    See all items from a particular season across clubs
+  </Card>
+  <Card title="By Brand" icon="tag">
+    Filter by manufacturer (Nike, Adidas, Puma, etc.)
+  </Card>
+  <Card title="By Condition" icon="star">
+    Find items in specific condition ranges
+  </Card>
+</CardGroup>
+
+### Season Filter
+
+Organize items chronologically:
+
+```python
+# Get items ordered by season
+items = item_service.get_items_by_season(user)
+```
+
+Seasons are stored in "YYYY-YY" format (e.g., "2023-24") for consistent sorting.
+
+### Brand Filter
+
+Filter by manufacturer:
+
+```python
+# Find all Nike items
+items = items.filter(brand__name="Nike")
+```
+
+### Condition Filter
+
+Filter by condition rating or detailed condition:
+
+```python
+# Find mint condition items (9-10 rating)
+items = items.filter(condition__gte=9)
+
+# Find BNWT items
+items = items.filter(detailed_condition="BNWT")
+```
+
+### Visibility Filters
+
+Control which items appear in searches:
+
+```python
+# Public items only
+public_items = BaseItem.objects.public()
+
+# Private items only
+private_items = BaseItem.objects.private()
+
+# Draft items only
+drafts = BaseItem.objects.drafts()
+```
+
+<Note>
+Public items are visible to all users. Private items only appear in your own collection. Draft items don't appear anywhere until published.
+</Note>
+
+## Advanced Search
+
+The `ItemService` provides advanced search with multiple filter combinations:
+
+```python
+class ItemService:
+    def search_items_advanced(
+        self,
+        query: str,
+        user: User = None,
+        filters: dict[str, Any] | None = None,
+    ) -> QuerySet[Jersey]:
+        # Start with user's items or public items
+        items = (
+            self.item_repository.get_user_items(user) 
+            if user 
+            else self.item_repository.get_public_items()
+        )
+        
+        # Apply text search
+        if query:
+            items = self.item_repository.search_items(query, user)
+        
+        # Apply additional filters
+        if filters:
+            items = self._apply_filters(items, filters)
+        
+        return items
+```
+
+### Filter Dictionary
+
+Pass multiple filters as a dictionary:
+
+```python
+filters = {
+    "brand": "Nike",
+    "club": "Barcelona",
+    "condition": 10,
+    "is_draft": False,
+    "is_private": False,
+}
+
+results = item_service.search_items_advanced(
+    query="Messi",
+    user=request.user,
+    filters=filters
+)
+```
+
+This example finds:
+- Public, published items (not drafts)
+- Made by Nike
+- From Barcelona
+- In mint condition (10/10)
+- Containing "Messi" in searchable fields
+
+## Database Indexes
+
+FootyCollect uses strategic database indexes for fast search performance:
+
+```python
+class Meta:
+    indexes = [
+        models.Index(fields=["user"]),
+        models.Index(fields=["item_type"]),
+        models.Index(fields=["club"]),
+        models.Index(fields=["brand"]),
+        models.Index(fields=["created_at"]),
+        # Composite indexes for common query patterns
+        models.Index(
+            fields=["user", "item_type"], 
+            name="baseitem_user_item_type_idx"
+        ),
+        models.Index(
+            fields=["user", "is_private", "is_draft"],
+            name="baseitem_user_visibility_idx"
+        ),
+        models.Index(
+            fields=["user", "created_at"],
+            name="baseitem_user_created_idx"
+        ),
+        models.Index(
+            fields=["club", "season"],
+            name="baseitem_club_season_idx"
+        ),
+    ]
+```
+
+<Info>
+Composite indexes optimize common query patterns like "find all jerseys for this user" or "find all items from this club in this season".
+</Info>
+
+## Custom Managers
+
+FootyCollect uses custom Django managers for common queries:
+
+### BaseItemManager
+
+For the `BaseItem` model:
+
+```python
+class BaseItemManager(models.Manager):
+    def public(self):
+        return self.filter(is_private=False, is_draft=False)
+    
+    def private(self):
+        return self.filter(is_private=True)
+    
+    def drafts(self):
+        return self.filter(is_draft=True)
+
+# Usage:
+BaseItem.objects.public()  # All public items
+BaseItem.objects.private()  # All private items
+BaseItem.objects.drafts()  # All drafts
+```
+
+### MTIManager
+
+For specific item types (Jersey, Shorts, etc.):
+
+```python
+class MTIManager(models.Manager):
+    def public(self):
+        return self.filter(
+            base_item__is_private=False,
+            base_item__is_draft=False
+        )
+    
+    def private(self):
+        return self.filter(base_item__is_private=True)
+    
+    def drafts(self):
+        return self.filter(base_item__is_draft=True)
+
+# Usage:
+Jersey.objects.public()  # All public jerseys
+Shorts.objects.private()  # All private shorts
+```
+
+<Accordion title="Why separate managers for MTI?">
+Multi-Table Inheritance requires traversing the relationship to `BaseItem` for visibility filters. The `MTIManager` handles this automatically:
+
+```python
+# Without MTIManager (manual)
+Jersey.objects.filter(
+    base_item__is_private=False,
+    base_item__is_draft=False
+)
+
+# With MTIManager (clean)
+Jersey.objects.public()
+```
+
+This provides a consistent API across `BaseItem` and specific item types.
+</Accordion>
+
+## Tag-Based Search
+
+FootyCollect supports custom tags for flexible categorization:
+
+```python
+# Add tags to items
+item.tags.add("match-worn", "signed", "rare")
+
+# Search by tag
+items = BaseItem.objects.filter(tags__name__in=["signed"])
+
+# Find items with multiple tags
+items = BaseItem.objects.filter(
+    tags__name="signed"
+).filter(
+    tags__name="rare"
+)
+```
+
+### Popular Tag Use Cases
+
+- **match-worn**: Items worn in actual matches
+- **signed**: Autographed items
+- **rare**: Limited edition or hard-to-find items
+- **vintage**: Retro or historical items
+- **grail**: Dream items or most prized pieces
+- **for-sale**: Items available for trade/sale
+
+## Sort Options
+
+Sort search results by various criteria:
+
+### Date Added (Default)
+
+```python
+items = items.order_by("-created_at")  # Newest first
+```
+
+### By Club Name
+
+```python
+items = items.order_by("club__name", "-created_at")
+```
+
+### By Season
+
+```python
+items = items.order_by("season__year", "-created_at")
+```
+
+### By Condition
+
+```python
+items = items.order_by("-condition")  # Best condition first
+```
+
+### By Brand
+
+```python
+items = items.order_by("brand__name", "-created_at")
+```
+
+## Collection Analytics
+
+Get insights about search results:
+
+```python
+summary = item_service.get_user_collection_summary(user)
+
+# Returns:
+{
+    "total_items": 150,
+    "by_type": {
+        "jersey": 120,
+        "shorts": 15,
+        "outerwear": 10,
+        "tracksuit": 5
+    },
+    "by_condition": {
+        10: 30,  # Mint condition
+        9: 45,
+        8: 50,
+        7: 25
+    },
+    "by_brand": {
+        "Nike": 60,
+        "Adidas": 50,
+        "Puma": 30,
+        "Umbro": 10
+    },
+    "by_club": {
+        "Real Madrid": 20,
+        "Barcelona": 18,
+        "Manchester United": 15
+    },
+    "recent_items": [<QuerySet>]
+}
+```
+
+## Performance Optimization
+
+### Query Optimization
+
+FootyCollect uses `select_related` and `prefetch_related` to minimize database queries:
+
+```python
+# Fetch items with related data in a single query
+items = BaseItem.objects.select_related(
+    "club",
+    "brand",
+    "season"
+).prefetch_related(
+    "competitions",
+    "tags",
+    "photos"
+).filter(user=user)
+```
+
+### Pagination
+
+Large result sets are paginated for performance:
+
+```python
+from django.core.paginator import Paginator
+
+paginator = Paginator(items, 20)  # 20 items per page
+page_obj = paginator.get_page(page_number)
+```
+
+<Tip>
+Search results are paginated at 20 items per page by default. This keeps page load times fast even with large collections.
+</Tip>
+
+## Best Practices
+
+1. **Use specific filters**: Combine multiple filters to narrow results quickly
+2. **Start broad, then narrow**: Begin with a general search, then add filters
+3. **Use tags strategically**: Create a consistent tagging system for your collection
+4. **Leverage visibility filters**: Keep drafts separate from published items
+5. **Sort by relevant criteria**: Choose sort order based on what you're looking for
+6. **Search within results**: Use filters to refine large search results

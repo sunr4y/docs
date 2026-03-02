@@ -1,0 +1,140 @@
+---
+title: Collection Management
+description: Organize and manage your football memorabilia collection with multiple item types and powerful organization features
+---
+
+FootyCollect supports a comprehensive collection management system that allows you to catalog various types of football memorabilia with detailed attributes and flexible organization.
+
+## Supported Item Types
+
+FootyCollect uses a Multi-Table Inheritance (MTI) architecture to support different item types while maintaining shared attributes. This means you get specialized fields for each item type while maintaining consistency across your collection.
+
+<CardGroup cols={2}>
+  <Card title="Jerseys" icon="shirt">
+    Full kits with player names, numbers, size information, and version types (Fan/Player)
+  </Card>
+  <Card title="Shorts" icon="running-shorts">
+    Match shorts with size and version details
+  </Card>
+  <Card title="Outerwear" icon="jacket">
+    Hoodies, jackets, windbreakers, and crewnecks
+  </Card>
+  <Card title="Tracksuits" icon="person-running">
+    Complete training gear and warm-up suits
+  </Card>
+</CardGroup>
+
+## Common Attributes
+
+Every item in your collection includes these core attributes:
+
+- **Club & Season**: Link items to specific clubs and seasons
+- **Brand**: Track manufacturers (Nike, Adidas, Puma, etc.)
+- **Competitions**: Associate items with tournaments and leagues
+- **Condition**: Rate condition from 1-10 with detailed condition descriptions (BNWT, Excellent, Good, etc.)
+- **Design**: Choose from 16 design patterns (Plain, Stripes, Hoops, Sash, etc.)
+- **Colors**: Main color and secondary colors using a predefined palette
+- **Country**: Associate items with national teams or countries
+- **Tags**: Custom tags for flexible organization
+
+<Info>
+The Multi-Table Inheritance pattern means each item type has its own specialized table while inheriting common attributes from the `BaseItem` model. This provides better performance and type-specific validation.
+</Info>
+
+## Jersey-Specific Features
+
+Jerseys have the most detailed attributes since they're the most common collectible:
+
+### Player Information
+
+- **Player Name**: Name on the back of the jersey
+- **Number**: Player number
+- **Has Nameset**: Whether the jersey includes official nameset printing
+
+### Jersey Details
+
+- **Size**: Choose from standard sizes (XS, S, M, L, XL, XXL, etc.)
+- **Version Type**: Fan Version or Player Version
+- **Sleeve Type**: Short sleeve or long sleeve
+- **Signed**: Mark if the jersey is autographed
+- **Kit Link**: Connect to Football Kit Archive data via FKAPI
+
+<Tip>
+Jersey names are automatically generated based on your selections. For example: "Real Betis Home 2020-21 - XS - Joaquin#17 - Player Version - Signed"
+</Tip>
+
+## Privacy & Visibility Controls
+
+Control who can see your items:
+
+- **Public Items**: Visible to all users in the feed and search results
+- **Private Items**: Only visible to you in your collection
+- **Draft Items**: Work-in-progress items that aren't yet published
+
+<Note>
+Items marked as drafts won't appear in public feeds or your visible collection until you publish them.
+</Note>
+
+## Organization Features
+
+### Filter by Type
+
+Quickly filter your collection by item type to view only jerseys, shorts, outerwear, or tracksuits.
+
+### Sort Options
+
+- **By Date Added**: See your most recent additions first
+- **By Club**: Group items by team
+- **By Season**: Organize chronologically by season
+- **By Condition**: Sort by condition rating
+
+### Collection Analytics
+
+View statistics about your collection:
+
+- Total items by type
+- Items by brand
+- Items by club
+- Condition distribution
+- Recent additions
+
+## Item Conditions
+
+FootyCollect uses a dual rating system for condition:
+
+### Numeric Rating (1-10)
+
+Rate the overall condition on a scale from 1 (poor) to 10 (mint condition).
+
+### Detailed Condition Labels
+
+| Condition | Description |
+|-----------|-------------|
+| BNWT | Brand New With Tags - Never worn, original tags attached |
+| BNWOT | Brand New Without Tags - Never worn, tags removed |
+| Excellent | Like new condition, no visible wear |
+| Very Good | Minimal wear, excellent overall |
+| Good | Some signs of wear but well maintained |
+| Fair | Noticeable wear, still displayable |
+| Poor | Significant wear or damage |
+
+<Accordion title="Why Multi-Table Inheritance?">
+Multi-Table Inheritance provides several benefits for collectors:
+
+- **Type-specific fields**: Jerseys get player names and numbers, outerwear gets type classifications
+- **Better data integrity**: Each item type has validation specific to its fields
+- **Cleaner queries**: Query only jerseys or only outerwear without mixed results
+- **Flexibility**: Easy to add new item types in the future
+- **Consistent interface**: All items share common attributes like club, season, and condition
+
+For example, when you create a jersey, it automatically creates a `BaseItem` with shared attributes and a linked `Jersey` record with jersey-specific fields like `player_name` and `number`.
+</Accordion>
+
+## Best Practices
+
+1. **Use consistent naming**: Let FootyCollect auto-generate jersey names for consistency
+2. **Add complete details**: Fill in all relevant fields for better search and organization
+3. **Link to FKAPI**: When available, use FKAPI integration to auto-populate club, season, and competition data
+4. **Set accurate conditions**: Use both numeric and detailed condition ratings
+5. **Organize with tags**: Create custom tags for special categories (match-worn, signed, rare, etc.)
+6. **Add photos**: Include multiple photos to document condition and details

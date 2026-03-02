@@ -1,0 +1,238 @@
+---
+title: Architecture Overview
+description: High-level overview of FootyCollect's technical architecture and design patterns
+---
+
+FootyCollect is a Django web application for managing football memorabilia collections. The architecture emphasizes separation of concerns, maintainability, and scalability through well-established design patterns.
+
+## Technology Stack
+
+FootyCollect is built on a modern Python web stack:
+
+- **Framework**: Django 5.0+ - Python web framework with ORM, admin interface, and authentication
+- **Database**: PostgreSQL - Primary relational database with support for complex queries and indexes
+- **Cache & Broker**: Redis - Used for caching and as Celery message broker
+- **Task Queue**: Celery - Asynchronous task processing for background jobs (image processing, etc.)
+- **API**: Django REST Framework - RESTful API for programmatic access
+- **Image Processing**: Pillow + ImageKit - Image optimization and format conversion (AVIF)
+- **Frontend**: Django Templates with Bootstrap 5 and django-cotton components
+
+## Architecture Layers
+
+The application follows a layered architecture pattern:
+
+```
+┌─────────────────────────────────────────┐
+│  Views Layer (HTTP/Templates)           │
+│  - Django views & viewsets              │
+│  - REST API endpoints                   │
+└─────────────┬───────────────────────────┘
+              │
+┌─────────────▼───────────────────────────┐
+│  Service Layer (Business Logic)         │
+│  - ItemService, PhotoService, etc.      │
+│  - Transaction management               │
+│  - External API integration             │
+└─────────────┬───────────────────────────┘
+              │
+┌─────────────▼───────────────────────────┐
+│  Repository Layer (Data Access)         │
+│  - ItemRepository, PhotoRepository      │
+│  - Query optimization                   │
+└─────────────┬───────────────────────────┘
+              │
+┌─────────────▼───────────────────────────┐
+│  Models Layer (ORM/Database)            │
+│  - BaseItem, Jersey, Shorts, etc.       │
+│  - Multi-table inheritance              │
+└─────────────────────────────────────────┘
+```
+
+### Layer Responsibilities
+
+**Views Layer**
+- Handle HTTP requests and responses
+- Render templates or serialize JSON
+- Request validation and form handling
+- Minimal business logic
+
+**Service Layer**
+- Encapsulate complex business logic
+- Coordinate multiple repositories
+- Manage database transactions
+- Integrate with external APIs
+- Orchestrate async tasks
+
+**Repository Layer**
+- Abstract database access patterns
+- Encapsulate complex queries
+- Provide a clean data access API
+- Handle query optimization
+
+**Models Layer**
+- Define database schema via Django ORM
+- Implement data validation
+- Define model-level business rules
+- Manage relationships
+
+## Key Design Patterns
+
+### Multi-Table Inheritance (MTI)
+
+FootyCollect uses Django's multi-table inheritance to model different item types (jerseys, shorts, outerwear, tracksuits) while sharing common attributes.
+
+```python
+BaseItem (common fields)
+├── Jersey (jersey-specific fields)
+├── Shorts (shorts-specific fields)
+├── Outerwear (outerwear-specific fields)
+└── Tracksuit (tracksuit-specific fields)
+```
+
+This pattern provides:
+- Clear separation of common and type-specific fields
+- Type safety with distinct models
+- Flexibility to query all items or specific types
+- Easy extensibility for new item types
+
+### Service Layer Pattern
+
+Complex business logic is encapsulated in service classes, keeping views thin and focused on HTTP concerns.
+
+```python
+from footycollect.collection.services import get_item_service
+
+item_service = get_item_service()
+item = item_service.create_item_with_photos(user, item_data, photos)
+```
+
+Benefits:
+- Reusable business logic across views, APIs, and tasks
+- Easier unit testing without HTTP layer
+- Clear transaction boundaries
+- Better separation of concerns
+
+### Repository Pattern
+
+Data access is abstracted through repository classes that encapsulate query logic.
+
+```python
+class ItemRepository:
+    def get_user_items(self, user):
+        return BaseItem.objects.filter(user=user)
+    
+    def get_public_items(self):
+        return BaseItem.objects.filter(is_private=False, is_draft=False)
+```
+
+Advantages:
+- Centralized query logic
+- Easier to optimize queries
+- Testable data access layer
+- Flexibility to change data source
+
+### Service Registry Pattern
+
+Services are accessed through a centralized registry for dependency injection and testing.
+
+```python
+class ServiceRegistry:
+    def get_item_service(self) -> ItemService:
+        return self.get_service('item_service')
+
+# Global registry
+service_registry = ServiceRegistry()
+service_registry.initialize_default_services()
+```
+
+## Data Flow Example
+
+Here's how a typical request flows through the architecture:
+
+1. **User creates a jersey via web form**
+2. **View** validates form and extracts data
+3. **Service** (`ItemService`) coordinates the operation:
+   - Starts database transaction
+   - Creates `BaseItem` record
+   - Creates `Jersey` record (linked to BaseItem)
+   - Processes photo uploads via `PhotoService`
+   - Commits transaction
+4. **Repository** executes optimized database queries
+5. **Models** enforce data validation and relationships
+6. **View** redirects to item detail page
+
+## Database Design
+
+The database schema uses:
+- **Multi-table inheritance** for item types
+- **Foreign keys** for relationships (user, club, season, brand)
+- **Many-to-many** for competitions and colors
+- **Generic foreign keys** for flexible photo associations
+- **Indexes** on common query patterns (user+type, club+season)
+
+See [Database Schema](/architecture/database-schema) for details.
+
+## External Integrations
+
+### Football Kit Archive API
+
+FootyCollect integrates with the Football Kit Archive API to:
+- Fetch kit metadata (team, season, type)
+- Download official kit images
+- Populate collection data automatically
+
+```python
+class ItemFKAPIService:
+    def process_item_creation(self, form, user, item_type):
+        # Fetch data from FKAPI
+        # Create item with enriched metadata
+        # Download and attach photos
+```
+
+### Asynchronous Processing
+
+Celery handles background tasks:
+- **Image optimization**: Convert uploaded images to AVIF format
+- **Photo processing**: Resize and generate thumbnails
+- **External API calls**: Fetch data without blocking requests
+
+```python
+@shared_task
+def process_photo_to_avif(photo_id):
+    photo = Photo.objects.get(pk=photo_id)
+    photo.create_avif_version()
+```
+
+## Security & Performance
+
+### Security Measures
+
+- **Authentication**: Django Allauth with email verification
+- **Authorization**: User-based ownership checks
+- **Content Security Policy**: Configurable CSP headers
+- **Input validation**: Form validation and model constraints
+- **File upload validation**: Type and size limits for images
+
+### Performance Optimizations
+
+- **Database indexes**: Composite indexes on common query patterns
+- **Query optimization**: `select_related()` and `prefetch_related()`
+- **Caching**: Redis for session storage and caching
+- **Image optimization**: AVIF format for smaller file sizes
+- **Asynchronous processing**: Celery for heavy operations
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Service Layer" icon="layer-group" href="/architecture/service-layer">
+    Service layer pattern for business logic encapsulation
+  </Card>
+  
+  <Card title="Database Schema" icon="database" href="/architecture/database-schema">
+    Database models, relationships, and schema design
+  </Card>
+  
+  <Card title="Multi-Table Inheritance" icon="diagram-project" href="/architecture/multi-table-inheritance">
+    MTI pattern for modeling different item types
+  </Card>
+</CardGroup>

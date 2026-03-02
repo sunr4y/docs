@@ -1,0 +1,139 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "name": "FootyCollect",
+  "theme": "almond",
+  "colors": {
+    "primary": "#008000",
+    "light": "#4CAF50",
+    "dark": "#004d00"
+  },
+  "navbar": {
+    "primary": {
+      "type": "github",
+      "href": "https://github.com/sunr4y/FootyCollect"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/sunr4y/FootyCollect"
+    }
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "demo"
+            ]
+          },
+          {
+            "group": "Installation",
+            "pages": [
+              "installation/local-setup",
+              "installation/docker-setup",
+              "installation/environment-variables"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/collection-management",
+              "features/photo-management",
+              "features/fkapi-integration",
+              "features/search-and-filters",
+              "features/user-profiles"
+            ]
+          },
+          {
+            "group": "User Guide",
+            "pages": [
+              "guide/adding-items",
+              "guide/managing-photos",
+              "guide/searching-collections",
+              "guide/privacy-settings"
+            ]
+          },
+          {
+            "group": "Architecture",
+            "pages": [
+              "architecture/overview",
+              "architecture/service-layer",
+              "architecture/database-schema",
+              "architecture/multi-table-inheritance"
+            ]
+          },
+          {
+            "group": "Development",
+            "pages": [
+              "development/project-structure",
+              "development/running-tests",
+              "development/code-quality",
+              "development/celery-tasks"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/overview",
+              "deployment/docker-production",
+              "deployment/bare-metal",
+              "deployment/environment-setup",
+              "deployment/production-checklist"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "API Overview",
+            "pages": [
+              "api/introduction",
+              "api/authentication",
+              "api/rate-limiting"
+            ]
+          },
+          {
+            "group": "Endpoints",
+            "pages": [
+              "api/endpoints/users",
+              "api/endpoints/items",
+              "api/endpoints/photos",
+              "api/endpoints/collections"
+            ]
+          },
+          {
+            "group": "FKAPI Integration",
+            "pages": [
+              "api/fkapi/overview",
+              "api/fkapi/search-kits",
+              "api/fkapi/bulk-operations"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Management Commands",
+        "groups": [
+          {
+            "group": "Commands",
+            "pages": [
+              "commands/overview",
+              "commands/populate-collection",
+              "commands/cleanup-orphaned-photos",
+              "commands/setup-beat-schedule",
+              "commands/fetch-home-kits",
+              "commands/migrate-photos-to-remote"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

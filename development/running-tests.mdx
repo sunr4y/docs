@@ -1,0 +1,347 @@
+---
+title: Running Tests
+description: Guide to running and writing tests for FootyCollect
+---
+
+FootyCollect uses pytest for testing with comprehensive coverage reporting. Tests are organized by app and functionality.
+
+## Quick Start
+
+<CodeGroup>
+```bash Run all tests
+pytest
+```
+
+```bash Run with coverage report
+pytest --cov=footycollect --cov-report=html
+```
+
+```bash Run specific test file
+pytest footycollect/collection/tests/test_models.py
+```
+
+```bash Run specific test function
+pytest footycollect/collection/tests/test_models.py::TestJerseyModel::test_create_jersey
+```
+</CodeGroup>
+
+## Test Configuration
+
+### pytest.ini
+
+Main pytest configuration:
+
+```ini pytest.ini
+[pytest]
+DJANGO_SETTINGS_MODULE = config.settings.test
+python_files = tests.py test_*.py *_tests.py
+python_classes = Test* *Test *Tests
+python_functions = test_*
+addopts =
+    --tb=short
+    --strict-markers
+    --disable-warnings
+    --reuse-db
+    --nomigrations
+    --cov=footycollect
+    --cov-report=html
+    --cov-report=term-missing
+testpaths =
+    footycollect
+markers =
+    slow: marks tests as slow (deselect with '-m "not slow"')
+    integration: marks tests as integration tests
+    unit: marks tests as unit tests
+    api: marks tests as API tests
+    models: marks tests as model tests
+    views: marks tests as view tests
+    forms: marks tests as form tests
+    client: marks tests as client tests
+```
+
+<Note>
+The `--reuse-db` flag reuses the test database between runs for faster execution. Use `--create-db` to recreate it.
+</Note>
+
+### pyproject.toml Configuration
+
+```toml pyproject.toml
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "--ds=config.settings.test --reuse-db --import-mode=importlib"
+python_files = [
+    "tests.py",
+    "test_*.py",
+]
+
+[tool.coverage.run]
+include = ["footycollect/**"]
+omit = ["*/migrations/*", "*/tests/*"]
+plugins = ["django_coverage_plugin"]
+```
+
+## Test Organization
+
+Tests are organized by app and functionality:
+
+### Collection App Tests
+
+```
+footycollect/collection/tests/
+├── test_models.py              # Model tests (BaseItem, Jersey, Photo)
+├── test_views/                 # View tests organized by view type
+│   ├── test_jersey_views.py
+│   ├── test_item_views.py
+│   ├── test_photo_views.py
+│   └── test_feed_views.py
+├── test_services.py            # Service layer tests
+├── test_item_service.py        # Item service tests
+├── test_photo_service.py       # Photo service tests
+├── test_forms.py               # Form validation tests
+├── test_repositories.py        # Repository layer tests
+├── test_tasks.py               # Celery task tests
+└── test_e2e_*.py              # End-to-end tests
+```
+
+### Test Types
+
+<AccordionGroup>
+  <Accordion title="Model Tests (test_models.py)">
+    Test Django models:
+    - Model creation and validation
+    - Field constraints
+    - Model methods
+    - Relationships
+    
+    ```python
+    def test_create_jersey(user, club, season):
+        jersey = Jersey.objects.create(
+            user=user,
+            club=club,
+            season=season,
+            item_type="home",
+        )
+        assert jersey.club == club
+        assert jersey.season == season
+    ```
+  </Accordion>
+  
+  <Accordion title="View Tests (test_views/)">
+    Test Django views:
+    - URL resolution
+    - View responses
+    - Form handling
+    - Permission checks
+    
+    ```python
+    def test_jersey_list_view(client, user):
+        client.force_login(user)
+        response = client.get(reverse("collection:jersey-list"))
+        assert response.status_code == 200
+    ```
+  </Accordion>
+  
+  <Accordion title="Service Tests (test_services.py)">
+    Test business logic in the service layer:
+    - Service methods
+    - Business rules
+    - Data transformations
+    - Error handling
+    
+    ```python
+    def test_create_item_service(user, club, season):
+        service = ItemService(user)
+        item = service.create_jersey(
+            club=club,
+            season=season,
+            item_type="home",
+        )
+        assert item.user == user
+    ```
+  </Accordion>
+  
+  <Accordion title="Form Tests (test_forms.py)">
+    Test form validation:
+    - Field validation
+    - Form cleaning
+    - Custom validators
+    - Error messages
+    
+    ```python
+    def test_jersey_form_valid_data():
+        form = JerseyForm(data={"item_type": "home"})
+        assert form.is_valid()
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Running Tests by Marker
+
+Use pytest markers to run specific test categories:
+
+<CodeGroup>
+```bash Unit tests only
+pytest -m unit
+```
+
+```bash Skip slow tests
+pytest -m "not slow"
+```
+
+```bash Integration tests
+pytest -m integration
+```
+
+```bash Model tests
+pytest -m models
+```
+
+```bash View tests
+pytest -m views
+```
+</CodeGroup>
+
+## Coverage Reporting
+
+FootyCollect aims for high test coverage:
+
+<Steps>
+  <Step title="Run tests with coverage">
+    ```bash
+    pytest
+    ```
+    Coverage is automatically collected (configured in pytest.ini)
+  </Step>
+  
+  <Step title="View HTML coverage report">
+    ```bash
+    open htmlcov/index.html
+    # On Linux: xdg-open htmlcov/index.html
+    # On Windows: start htmlcov/index.html
+    ```
+  </Step>
+  
+  <Step title="Check coverage percentage">
+    Look for the coverage summary in the terminal output:
+    ```
+    ----------- coverage: platform linux, python 3.12 -----------
+    Name                                    Stmts   Miss  Cover   Missing
+    ---------------------------------------------------------------------
+    footycollect/collection/models.py         234      5    98%   45-47
+    footycollect/collection/services.py       189      3    98%   78-80
+    ```
+  </Step>
+</Steps>
+
+### Coverage Configuration
+
+```toml pyproject.toml
+[tool.coverage.run]
+include = ["footycollect/**"]
+omit = ["*/migrations/*", "*/tests/*"]
+plugins = ["django_coverage_plugin"]
+```
+
+<Note>
+Migrations and test files are excluded from coverage reporting. Only application code is measured.
+</Note>
+
+## Test Database
+
+Pytest uses a separate test database:
+
+<CodeGroup>
+```bash Reuse database (faster)
+pytest --reuse-db
+```
+
+```bash Recreate database
+pytest --create-db
+```
+
+```bash No migrations (fastest)
+pytest --nomigrations
+```
+</CodeGroup>
+
+<Tip>
+The `--reuse-db` and `--nomigrations` flags are set by default in `pytest.ini` for faster test runs. The database is created from models, not migrations.
+</Tip>
+
+## Writing Tests
+
+### Using Fixtures
+
+Common fixtures are defined in `footycollect/conftest.py`:
+
+```python
+import pytest
+from footycollect.users.models import User
+from footycollect.core.models import Club, Season
+
+@pytest.fixture
+def user(db):
+    return User.objects.create_user(
+        username="testuser",
+        email="test@example.com",
+        password="testpass123",
+    )
+
+@pytest.fixture
+def club(db):
+    return Club.objects.create(name="Test FC")
+
+@pytest.fixture
+def season(db):
+    return Season.objects.create(year="2023-24")
+```
+
+### Test Example
+
+```python test_models.py
+import pytest
+from footycollect.collection.models import Jersey
+
+@pytest.mark.django_db
+def test_create_jersey(user, club, season):
+    """Test creating a jersey item."""
+    jersey = Jersey.objects.create(
+        user=user,
+        club=club,
+        season=season,
+        item_type="home",
+        condition="new",
+    )
+    
+    assert jersey.user == user
+    assert jersey.club == club
+    assert jersey.season == season
+    assert jersey.item_type == "home"
+    assert str(jersey) == f"{club.name} {season.year} Home"
+```
+
+## Continuous Integration
+
+Tests run automatically on GitHub Actions:
+
+- On every push and pull request
+- Coverage reports uploaded to Codecov
+- Must pass before merging
+
+See the [project README](https://github.com/sunr4y/FootyCollect#testing) for CI configuration.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Code Quality" icon="code" href="/development/code-quality">
+    Code quality tools and linting
+  </Card>
+  
+  <Card title="Project Structure" icon="folder-tree" href="/development/project-structure">
+    Understanding the codebase
+  </Card>
+  
+  <Card title="Service Layer" icon="layer-group" href="/architecture/service-layer">
+    Service layer architecture
+  </Card>
+</CardGroup>

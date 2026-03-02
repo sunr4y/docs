@@ -1,0 +1,253 @@
+---
+title: setup_beat_schedule
+description: Configure periodic Celery tasks for automatic maintenance
+---
+
+The `setup_beat_schedule` command configures django-celery-beat periodic tasks with sensible default frequencies for automatic maintenance operations.
+
+## What it does
+
+This command creates or updates periodic tasks in the database for:
+
+- **Orphaned photo cleanup** - Removes incomplete photos every 6 hours
+- **Full photo cleanup** - Removes all orphaned photos every 7 days  
+- **Old incomplete photo cleanup** - Removes very old incomplete photos daily
+
+## Basic usage
+
+```bash
+python manage.py setup_beat_schedule
+```
+
+<Info>
+  Run this command once after deployment to configure automatic maintenance tasks.
+</Info>
+
+## Arguments and options
+
+<ParamField path="--dry-run" type="boolean">
+  Preview what would be created/updated without making changes.
+  
+  **Example:**
+  ```bash
+  python manage.py setup_beat_schedule --dry-run
+  ```
+</ParamField>
+
+## Default periodic tasks
+
+The command configures these tasks with default intervals:
+
+### 1. Cleanup incomplete photos (24h)
+
+- **Task:** `collection.tasks.cleanup_orphaned_photos`
+- **Frequency:** Every 6 hours
+- **Description:** Removes photos from incomplete form submissions older than 24 hours
+
+### 2. Cleanup all orphaned photos
+
+- **Task:** `collection.tasks.cleanup_all_orphaned_photos`
+- **Frequency:** Every 7 days
+- **Description:** Comprehensive cleanup of all photo files not referenced in database
+
+### 3. Cleanup old incomplete photos (168h)
+
+- **Task:** `collection.tasks.cleanup_old_incomplete_photos`
+- **Frequency:** Every 1 day
+- **Description:** Removes very old incomplete photos (older than 7 days)
+
+## Example output
+
+```bash
+$ python manage.py setup_beat_schedule
+
+Created: cleanup_orphaned_photos (incomplete, 24h) every 6 HOURS
+Created: cleanup_all_orphaned_photos every 7 DAYS
+Created: cleanup_old_incomplete_photos (168h) every 1 DAYS
+Beat schedule updated. Celery Beat will pick up changes.
+Adjust intervals in Django Admin: django_celery_beat > Periodic tasks.
+```
+
+## Customizing intervals
+
+After running the command, you can adjust task intervals in Django Admin:
+
+<Steps>
+  <Step title="Access Django Admin">
+    Navigate to `/admin/` and log in with your superuser account
+  </Step>
+  <Step title="Go to Periodic tasks">
+    Click **django_celery_beat** → **Periodic tasks**
+  </Step>
+  <Step title="Edit task">
+    Click on the task you want to modify (e.g., "cleanup_orphaned_photos")
+  </Step>
+  <Step title="Change interval">
+    Update the **Interval** field to your desired frequency
+  </Step>
+  <Step title="Save">
+    Click **Save** - Celery Beat will pick up the changes automatically
+  </Step>
+</Steps>
+
+## When to run
+
+### After initial deployment
+
+```bash
+python manage.py migrate
+python manage.py setup_beat_schedule
+```
+
+### After updating FootyCollect
+
+If new periodic tasks are added in a FootyCollect update:
+
+```bash
+python manage.py setup_beat_schedule
+```
+
+### In Docker
+
+```bash
+docker compose -f docker-compose.production.yml exec django python manage.py setup_beat_schedule
+```
+
+## Verifying tasks
+
+### Check configured tasks
+
+```bash
+python manage.py shell
+```
+
+```python
+from django_celery_beat.models import PeriodicTask
+
+# List all periodic tasks
+for task in PeriodicTask.objects.all():
+    print(f"{task.name}: {task.enabled} - {task.interval}")
+```
+
+### Monitor Celery Beat
+
+Celery Beat logs show when tasks are scheduled:
+
+```bash
+# Docker
+docker compose logs celerybeat
+
+# Systemd
+journalctl -u celerybeat -f
+```
+
+## Task implementation
+
+The periodic tasks are defined in `footycollect/collection/tasks.py`:
+
+```python
+@shared_task
+def cleanup_orphaned_photos():
+    """Cleanup incomplete photos older than 24 hours."""
+    call_command(
+        "cleanup_orphaned_photos",
+        "--incomplete-only",
+        "--older-than-hours",
+        "24",
+    )
+
+@shared_task
+def cleanup_all_orphaned_photos():
+    """Cleanup all orphaned photos."""
+    call_command("cleanup_orphaned_photos")
+
+@shared_task  
+def cleanup_old_incomplete_photos():
+    """Cleanup very old incomplete photos (7 days)."""
+    call_command(
+        "cleanup_orphaned_photos",
+        "--incomplete-only",
+        "--older-than-hours",
+        "168",
+    )
+```
+
+## Disabling tasks
+
+To temporarily disable a task without deleting it:
+
+### Via Django Admin
+
+1. Go to **django_celery_beat** → **Periodic tasks**
+2. Click on the task
+3. Uncheck **Enabled**
+4. Click **Save**
+
+### Via management command
+
+```bash
+python manage.py shell
+```
+
+```python
+from django_celery_beat.models import PeriodicTask
+
+task = PeriodicTask.objects.get(name="cleanup_orphaned_photos (incomplete, 24h)")
+task.enabled = False
+task.save()
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Tasks not running">
+    Verify Celery Beat is running:
+    
+    ```bash
+    # Docker
+    docker compose ps celerybeat
+    
+    # Systemd  
+    systemctl status celerybeat
+    ```
+    
+    Check Celery Beat logs for errors:
+    
+    ```bash
+    docker compose logs celerybeat --tail=100
+    ```
+  </Accordion>
+  
+  <Accordion title="Tasks run but do nothing">
+    Verify the Celery worker is running:
+    
+    ```bash
+    # Docker
+    docker compose ps celeryworker
+    
+    # Systemd
+    systemctl status celeryworker
+    ```
+    
+    Check worker logs:
+    
+    ```bash
+    docker compose logs celeryworker --tail=100
+    ```
+  </Accordion>
+  
+  <Accordion title="Duplicate tasks created">
+    The command uses `update_or_create` to prevent duplicates. If you see duplicates, manually delete them in Django Admin and re-run the command.
+  </Accordion>
+</AccordionGroup>
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="cleanup_orphaned_photos" icon="trash" href="/commands/cleanup-orphaned-photos">
+    Manual photo cleanup command
+  </Card>
+  <Card title="Celery Tasks" icon="gears" href="/development/celery-tasks">
+    Learn about background task processing
+  </Card>
+</CardGroup>

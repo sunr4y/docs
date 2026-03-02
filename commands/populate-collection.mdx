@@ -1,0 +1,209 @@
+---
+title: populate_user_collection
+description: Bulk import collections from Football Kit Archive API
+---
+
+The `populate_user_collection` command imports user collections from the Football Kit Archive (via FKAPI) into FootyCollect. This is useful for testing, data migration, or bulk importing collections.
+
+## How it works
+
+The command performs these steps:
+
+<Steps>
+  <Step title="Scrape collection">
+    Calls FKAPI to scrape the user's collection from Football Kit Archive
+  </Step>
+  <Step title="Wait for completion">
+    Waits for scraping to complete or uses cached data
+  </Step>
+  <Step title="Fetch paginated data">
+    Retrieves collection entries in batches
+  </Step>
+  <Step title="Create database objects">
+    Maps API data to Django models (User, BaseItem, Jersey, Club, Brand, Season, etc.)
+  </Step>
+  <Step title="Download assets">
+    Creates Photo objects and downloads entry images
+  </Step>
+</Steps>
+
+## Basic usage
+
+```bash
+python manage.py populate_user_collection <userid>
+```
+
+**Example:**
+
+```bash
+python manage.py populate_user_collection 12345
+```
+
+## Arguments and options
+
+<ParamField path="userid" type="integer" required>
+  User ID from Football Kit Archive to import
+</ParamField>
+
+<ParamField path="--target-username" type="string">
+  Username in your FootyCollect system to assign items to. If not provided, creates a new user.
+  
+  **Example:**
+  ```bash
+  python manage.py populate_user_collection 12345 --target-username myuser
+  ```
+</ParamField>
+
+<ParamField path="--wait-timeout" type="integer" default="120">
+  Maximum time to wait for scraping in seconds.
+  
+  **Example:**
+  ```bash
+  python manage.py populate_user_collection 12345 --wait-timeout 180
+  ```
+</ParamField>
+
+<ParamField path="--page-size" type="integer" default="20">
+  Page size for paginated requests.
+  
+  **Example:**
+  ```bash
+  python manage.py populate_user_collection 12345 --page-size 50
+  ```
+</ParamField>
+
+<ParamField path="--dry-run" type="boolean">
+  Preview mode - don't create any database objects.
+  
+  **Example:**
+  ```bash
+  python manage.py populate_user_collection 12345 --dry-run
+  ```
+</ParamField>
+
+<ParamField path="--json-file" type="string">
+  Path to JSON file with collection data (for testing without FKAPI).
+  
+  **Example:**
+  ```bash
+  python manage.py populate_user_collection --json-file test_data.json
+  ```
+</ParamField>
+
+## Requirements
+
+<Warning>
+  FKAPI must be running and configured for this command to work. See [FKAPI Integration](/features/fkapi-integration) for setup instructions.
+</Warning>
+
+Ensure these environment variables are set:
+
+- `FKA_API_IP` - FKAPI server IP/hostname
+- `API_KEY` - API key for FKAPI access
+
+## Example workflows
+
+### Import to existing user
+
+```bash
+# First, create the user in Django admin or shell
+python manage.py createsuperuser
+
+# Then import the collection
+python manage.py populate_user_collection 12345 --target-username admin
+```
+
+### Test import with dry run
+
+```bash
+# Preview what would be imported
+python manage.py populate_user_collection 12345 --dry-run
+
+# If everything looks good, run for real
+python manage.py populate_user_collection 12345
+```
+
+### Import from JSON file (testing)
+
+```bash
+# Export collection data to JSON first (via FKAPI)
+curl http://fkapi-server/api/user-collection/12345 > collection.json
+
+# Import from file without FKAPI
+python manage.py populate_user_collection --json-file collection.json
+```
+
+## What gets created
+
+The command creates and links these models:
+
+- **User** - New user or uses existing `--target-username`
+- **Club, Brand, Season, Competition** - Referenced entities
+- **Kit** - Kit metadata from FKAPI
+- **BaseItem & Jersey** - Collection items (uses Multi-Table Inheritance)
+- **Color** - Primary and secondary colors
+- **Size** - Jersey sizes
+- **Photo** - Entry images with automatic AVIF optimization
+
+## Output example
+
+```
+Starting collection import for user ID: 12345
+Scraping collection...
+Waiting for scraping to complete... (max 120s)
+Scraping complete!
+Fetching page 1...
+Creating items...
+  Created Jersey: Manchester United 1999/2000 Home
+  Created Jersey: Arsenal 2003/2004 Home
+  ...
+Downloading photos...
+Import complete!
+Total items created: 42
+Total photos downloaded: 58
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Scraping timeout">
+    If scraping times out, increase `--wait-timeout`:
+    
+    ```bash
+    python manage.py populate_user_collection 12345 --wait-timeout 300
+    ```
+  </Accordion>
+  
+  <Accordion title="FKAPI connection error">
+    Verify FKAPI is running and environment variables are set:
+    
+    ```bash
+    echo $FKA_API_IP
+    echo $API_KEY
+    curl http://$FKA_API_IP/health
+    ```
+  </Accordion>
+  
+  <Accordion title="Duplicate items">
+    The command checks for existing items to avoid duplicates. If you get duplicate errors, ensure your database constraints are properly set up.
+  </Accordion>
+  
+  <Accordion title="Photo download failures">
+    Photo downloads are logged. Check logs for failed downloads:
+    
+    ```bash
+    grep "Error downloading" /var/log/footycollect/django.log
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="FKAPI Integration" icon="puzzle-piece" href="/features/fkapi-integration">
+    Learn about FKAPI setup and configuration
+  </Card>
+  <Card title="Bulk Operations" icon="layer-group" href="/api/fkapi/bulk-operations">
+    API documentation for bulk operations
+  </Card>
+</CardGroup>

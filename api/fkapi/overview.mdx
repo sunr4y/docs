@@ -1,0 +1,225 @@
+---
+title: "FKAPI Integration Overview"
+description: "Learn how FootyCollect integrates with the Football Kit Archive API (FKAPI) for kit data and metadata"
+---
+
+## What is FKAPI?
+
+FKAPI (Football Kit Archive API) is the backend service that powers FootyCollect's kit search and metadata functionality. It provides access to the extensive Football Kit Archive database, enabling users to search for kits by club, season, competition, and automatically populate collection data.
+
+<Note>
+FKAPI is an optional but core component for the intended FootyCollect workflow. Without FKAPI, you can still manage items manually, but you won't have access to the search-and-add flow or bulk imports from the archive.
+</Note>
+
+## Why FootyCollect Integrates with FKAPI
+
+FootyCollect uses FKAPI as the primary source for kit metadata when adding items to your collection:
+
+- **Search by club, season, and competition**: Find kits quickly without manual data entry
+- **Pre-filled metadata**: Automatically populate colors, designs, competitions, and logos
+- **Bulk imports**: Import entire user collections from the Football Kit Archive
+- **Logo downloads**: Automatically fetch club and brand logos for visual identification
+
+Without FKAPI running, FootyCollect operates in manual mode where you enter all item details yourself. With FKAPI deployed alongside FootyCollect, you unlock the full search-and-add experience.
+
+## Architecture
+
+### FKAPIClient
+
+The `FKAPIClient` class (`footycollect/api/client.py`) is the main interface for all FKAPI communication. It provides:
+
+- **Caching layer**: 1-hour cache by default to reduce API load
+- **Circuit breaker pattern**: Prevents cascading failures
+- **Rate limiting**: Maximum 100 requests per minute
+- **Retry logic**: Automatic retries with exponential backoff (max 3 attempts)
+- **Request timeout**: 60 seconds per request
+
+### Circuit Breaker Pattern
+
+FootyCollect implements a circuit breaker to protect against FKAPI failures:
+
+```python
+class CircuitBreaker:
+    def __init__(self, failure_threshold: int = 5, timeout: int = 60):
+        self.failure_threshold = failure_threshold
+        self.timeout = timeout
+        self.state = "closed"  # closed, open, half_open
+```
+
+**How it works:**
+
+1. **Closed state**: Normal operation, all requests proceed
+2. **Open state**: After 5 consecutive failures, circuit opens and blocks requests
+3. **Half-open state**: After 60 seconds, circuit allows one test request
+4. **Recovery**: If test request succeeds, circuit closes and normal operation resumes
+
+<Warning>
+When the circuit breaker is open, FKAPI requests will fail immediately and return cached data if available. This prevents overwhelming a failing API with more requests.
+</Warning>
+
+## Caching Strategy
+
+The client uses Django's cache backend (Redis in production) with intelligent fallback:
+
+```python
+# Cache configuration in FKAPIClient
+self.cache_timeout = 3600  # 1 hour cache by default
+```
+
+### Cache Key Generation
+
+Cache keys are generated using SHA-256 hash of endpoint and parameters:
+
+```python
+params_str = json.dumps(params, sort_keys=True) if params else ""
+hash_key = hashlib.sha256(f"{endpoint}:{params_str}".encode()).hexdigest()
+cache_key = f"fkapi_{hash_key}"
+```
+
+### Stale Cache Fallback
+
+When FKAPI is unavailable (circuit breaker open or timeout), the client attempts to return stale cached data:
+
+```python
+if not self.circuit_breaker.allow_request():
+    logger.warning("Circuit breaker is open for endpoint: %s", ctx.endpoint)
+    return self._get_stale_cache(ctx)
+```
+
+This ensures FootyCollect remains functional even when FKAPI is down.
+
+## Rate Limiting
+
+FKAPI client enforces rate limiting to prevent API abuse:
+
+- **Limit**: 100 requests per minute
+- **Window**: 60 seconds
+- **Storage**: Redis cache with automatic expiration
+
+```python
+self.rate_limit_max = 100
+self.rate_limit_window = 60  # seconds
+```
+
+When rate limit is exceeded, requests return cached data if available.
+
+## Proxy Endpoints
+
+FootyCollect provides proxy endpoints at `/fkapi/` that wrap the FKAPI client and add additional functionality:
+
+| Endpoint | FKAPI Method | Description |
+|----------|--------------|-------------|
+| `/fkapi/clubs/search/` | `search_clubs()` | Search clubs by keyword |
+| `/fkapi/kits/search/` | `search_kits()` | Search kits by keyword |
+| `/fkapi/kit/<id>/` | `get_kit_details()` | Get complete kit details |
+| `/fkapi/clubs/<id>/seasons/` | `get_club_seasons()` | Get seasons for a club |
+| `/fkapi/clubs/<id>/seasons/<season_id>/kits/` | `get_club_kits()` | Get kits for club/season |
+| `/fkapi/brands/search/` | `search_brands()` | Search brands by keyword |
+| `/fkapi/competitions/search/` | `search_competitions()` | Search competitions by keyword |
+
+All proxy endpoints include:
+
+- **Rate limiting**: 100 requests per hour per IP
+- **Authentication**: User must be authenticated
+- **Error handling**: Returns 503 when FKAPI is unavailable
+
+<Note>
+Proxy endpoints are defined in `footycollect/api/urls.py` and implemented in `footycollect/api/views.py`.
+</Note>
+
+## Error Handling
+
+The client implements comprehensive error handling:
+
+### Timeout Errors
+
+```python
+except requests.exceptions.Timeout:
+    logger.warning("Request timeout (attempt %d/%d)", attempt + 1, self.max_retries)
+    return RequestResult(
+        success=False,
+        error=requests.exceptions.Timeout(f"Request timeout after {self.request_timeout}s")
+    )
+```
+
+### HTTP Errors
+
+HTTP errors are logged and retried automatically with exponential backoff:
+
+```python
+wait_time = 2**attempt  # Exponential backoff: 1s, 2s, 4s
+time.sleep(wait_time)
+```
+
+### JSON Decode Errors
+
+JSON errors stop retries immediately since they indicate a client-side issue:
+
+```python
+except json.JSONDecodeError as e:
+    return RequestResult(success=False, error=e, should_stop=True)
+```
+
+## Configuration
+
+Required environment variables:
+
+<ParamField path="FKA_API_IP" type="string" required>
+  The IP address or hostname of your FKAPI instance (without http://)
+  
+  Example: `fkapi.example.com` or `192.168.1.100:8000`
+</ParamField>
+
+<ParamField path="API_KEY" type="string" required>
+  API key for authenticating with FKAPI
+  
+  Set this in your FKAPI instance configuration
+</ParamField>
+
+### Example Configuration
+
+```bash
+# .env file
+FKA_API_IP=fkapi.example.com
+API_KEY=your-secure-api-key-here
+```
+
+## Client Initialization
+
+```python
+from footycollect.api.client import FKAPIClient
+
+client = FKAPIClient()
+# Client is now ready with:
+# - Circuit breaker (5 failures threshold, 60s timeout)
+# - Rate limiting (100 req/min)
+# - Caching (1 hour TTL)
+# - Retry logic (3 attempts with exponential backoff)
+```
+
+## Best Practices
+
+<Warning>
+**Always handle None returns**: FKAPI methods return `None` when the API is unavailable. Your code should gracefully handle this:
+
+```python
+results = client.search_kits("arsenal")
+if results is None:
+    # FKAPI unavailable, show cached results or error message
+    return []
+```
+</Warning>
+
+<Note>
+**Use caching wisely**: Most endpoints cache by default. Disable caching only when you need fresh data:
+
+```python
+kit_data = client.get_kit_details(kit_id, use_cache=False)
+```
+</Note>
+
+## Next Steps
+
+- Learn about [searching kits via FKAPI](/api/fkapi/search-kits)
+- Explore [bulk operations](/api/fkapi/bulk-operations) for importing collections
+- Review the [proxy endpoints](/api/reference) for frontend integration

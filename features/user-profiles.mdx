@@ -1,0 +1,367 @@
+---
+title: User Profiles
+description: Customize your profile, control privacy settings, and manage collection visibility in FootyCollect
+---
+
+FootyCollect provides comprehensive user profile features that allow you to personalize your presence, control who sees your collection, and connect with other collectors.
+
+## Profile Information
+
+Your FootyCollect profile includes:
+
+### Basic Information
+
+- **Username**: Your unique identifier (required, cannot be changed)
+- **Email**: For notifications and account recovery (required, unique)
+- **Display Name**: Your full name or nickname (optional)
+- **Biography**: Tell other collectors about yourself and your collection (optional)
+- **Location**: Where you're located (optional)
+
+<Tip>
+A complete profile helps you connect with other collectors in your area or with similar interests.
+</Tip>
+
+### Avatar
+
+Upload a custom avatar to personalize your profile:
+
+- **Supported formats**: JPEG, PNG, WebP, GIF
+- **Automatic optimization**: Avatars are converted to AVIF format
+- **Size limit**: 15 MB maximum
+- **Recommended size**: At least 400×400 pixels for best quality
+
+```python
+class User(AbstractUser):
+    name = models.CharField(_("Name and last name"), blank=True, max_length=255)
+    biography = models.TextField(_("Biography"), blank=True)
+    location = models.CharField(_("Location"), max_length=100, blank=True)
+    avatar = models.ImageField(
+        _("Avatar"),
+        upload_to=avatar_file_name,
+        blank=True,
+        validators=[validate_avatar],
+    )
+    avatar_avif = models.ImageField(
+        upload_to="avatars_avif/", 
+        blank=True, 
+        null=True
+    )
+```
+
+<Info>
+Like item photos, avatars are automatically optimized to AVIF format for faster loading and reduced bandwidth usage.
+</Info>
+
+### Favorite Teams
+
+Link your profile to your favorite clubs:
+
+```python
+favourite_teams = models.ManyToManyField(Club, blank=True)
+```
+
+- **Multiple clubs**: Add as many favorite teams as you like
+- **Display on profile**: Favorite teams appear on your public profile
+- **Collection filtering**: Quickly filter your collection by favorite teams
+
+## Privacy Controls
+
+FootyCollect offers granular privacy controls for your profile and collection:
+
+### Profile Privacy
+
+Control who can view your profile:
+
+```python
+is_private = models.BooleanField(default=False)
+```
+
+<CardGroup cols={2}>
+  <Card title="Public Profile" icon="eye">
+    Your profile, biography, and public items are visible to all users
+  </Card>
+  <Card title="Private Profile" icon="eye-slash">
+    Only you can see your profile and collection. You don't appear in user searches
+  </Card>
+</CardGroup>
+
+### Item-Level Privacy
+
+Each item has its own privacy setting:
+
+```python
+class BaseItem(models.Model):
+    is_private = models.BooleanField(default=False)
+    is_draft = models.BooleanField(default=True)
+```
+
+**Privacy States:**
+
+| State | Public Profile | Private Profile |
+|-------|----------------|------------------|
+| **Public Item** | Visible to everyone | Only visible to you |
+| **Private Item** | Only visible to you | Only visible to you |
+| **Draft Item** | Only visible to you | Only visible to you |
+
+<Note>
+Even with a public profile, items marked as private or draft are never visible to other users. You have complete control over each item's visibility.
+</Note>
+
+### Privacy Workflow
+
+Typical privacy workflow when adding items:
+
+1. **Create item as draft** (default): Item is only visible to you
+2. **Complete details and photos**: Work on your item privately
+3. **Publish item**: Change `is_draft` to `False`
+4. **Set privacy**: Choose public or private
+   - **Public**: Appears in feeds and searches
+   - **Private**: Only you can see it
+
+## Collection Visibility
+
+Control what parts of your collection are visible:
+
+### Public Collection
+
+With a public profile and public items:
+
+- Items appear in the **global feed**
+- Items appear in **search results**
+- Other users can **view item details**
+- Your profile shows **collection statistics**
+- Users can **browse your collection**
+
+### Private Collection
+
+With a private profile or private items:
+
+- Items **don't appear in feeds**
+- Items **don't appear in searches**
+- Only you can **view and manage** items
+- Profile shows **no collection data** to others
+
+<Accordion title="Mixed Visibility Example">
+You can mix public and private items in your collection:
+
+```python
+# Your complete collection
+total_items = BaseItem.objects.filter(user=user).count()
+# Returns: 100 items
+
+# Public items (visible to others)
+public_items = BaseItem.objects.filter(
+    user=user,
+    is_private=False,
+    is_draft=False
+).count()
+# Returns: 75 items
+
+# Private items (only you see these)
+private_items = BaseItem.objects.filter(
+    user=user,
+    is_private=True
+).count()
+# Returns: 15 items
+
+# Drafts (work in progress)
+drafts = BaseItem.objects.filter(
+    user=user,
+    is_draft=True
+).count()
+# Returns: 10 items
+```
+
+Other users would only see your 75 public items. You maintain 15 private items (maybe rare pieces you don't want to publicize) and 10 drafts you're still working on.
+</Accordion>
+
+## Profile URL
+
+Each user has a unique profile URL:
+
+```python
+def get_absolute_url(self) -> str:
+    return reverse("users:detail", kwargs={"username": self.username})
+```
+
+Example: `https://footycollect.com/users/johncollector/`
+
+<Tip>
+Share your profile URL with other collectors to showcase your public collection.
+</Tip>
+
+## Account Timestamps
+
+FootyCollect tracks account activity:
+
+```python
+created_at = models.DateTimeField(
+    _("Created at"),
+    default=timezone.now,
+    editable=False,
+)
+updated_at = models.DateTimeField(
+    _("Updated at"),
+    default=timezone.now,
+    editable=False,
+)
+```
+
+- **Created at**: When you registered your account
+- **Updated at**: Last profile modification (automatically updated)
+
+## Collection Statistics
+
+Your profile displays collection statistics:
+
+```python
+summary = item_service.get_user_collection_summary(user)
+
+# Public statistics visible on your profile:
+{
+    "total_items": 150,
+    "by_type": {
+        "jersey": 120,
+        "shorts": 15,
+        "outerwear": 10,
+        "tracksuit": 5
+    },
+    "by_brand": {
+        "Nike": 60,
+        "Adidas": 50,
+        "Puma": 30
+    },
+    "by_club": {
+        "Real Madrid": 20,
+        "Barcelona": 18,
+        "Manchester United": 15
+    },
+    "recent_items": [<5 most recent items>]
+}
+```
+
+<Info>
+Statistics only include public items when viewed by other users. You see complete statistics including private items when viewing your own profile.
+</Info>
+
+## Avatar Optimization
+
+Avatars receive the same optimization treatment as item photos:
+
+```python
+def save(self, *args, **kwargs):
+    super().save(*args, **kwargs)
+    self.create_avif_version()
+
+def create_avif_version(self):
+    if not self.avatar_avif and self.avatar:
+        optimized = optimize_image(self.avatar)
+        if optimized:
+            self.avatar_avif.save(
+                optimized.name,
+                optimized,
+                save=False,
+            )
+            super().save(update_fields=["avatar_avif"])
+
+def get_avatar_url(self):
+    return self.avatar_avif.url if self.avatar_avif else self.avatar.url
+```
+
+Benefits:
+- **Faster loading**: AVIF format is 50% smaller than JPEG
+- **Better quality**: Superior compression preserves detail
+- **Automatic**: No manual optimization needed
+- **Fallback**: Original format used if AVIF fails
+
+## Profile Customization Best Practices
+
+1. **Complete your profile**: Fill in name, biography, and location
+2. **Upload a clear avatar**: Use a recognizable photo or logo
+3. **List favorite teams**: Help others find you based on shared interests
+4. **Write a biography**: Share your collecting focus or interests
+5. **Curate public items**: Only publish items you want to showcase
+6. **Use privacy strategically**: Keep rare items private if concerned about security
+
+## Privacy Strategy Examples
+
+### Full Public Profile
+
+```python
+user.is_private = False  # Public profile
+item.is_private = False  # Public items
+item.is_draft = False    # Published items
+```
+
+**Best for:**
+- Showcasing your collection
+- Connecting with other collectors
+- Building your reputation in the community
+
+### Selective Sharing
+
+```python
+user.is_private = False     # Public profile
+
+# Mix of public and private items
+common_item.is_private = False   # Share common items
+rare_item.is_private = True      # Hide rare/valuable items
+```
+
+**Best for:**
+- Sharing part of your collection
+- Protecting valuable items
+- Maintaining some privacy
+
+### Fully Private
+
+```python
+user.is_private = True   # Private profile
+# All items are private by default
+```
+
+**Best for:**
+- Personal cataloging only
+- Insurance documentation
+- Private record keeping
+
+## Security Considerations
+
+<Warning>
+If your collection includes valuable items, consider:
+
+- Using a **private profile** or marking valuable items as **private**
+- Not listing exact locations in your profile
+- Being cautious about sharing collection value publicly
+- Using strong, unique passwords
+- Enabling two-factor authentication (if available)
+</Warning>
+
+## Profile Analytics
+
+Track your collection growth:
+
+```python
+# Items added this month
+from django.utils import timezone
+from datetime import timedelta
+
+this_month = timezone.now() - timedelta(days=30)
+recent_items = BaseItem.objects.filter(
+    user=user,
+    created_at__gte=this_month
+).count()
+```
+
+## Community Features
+
+With a public profile, you can:
+
+- **Appear in feeds**: Your public items show in the global feed
+- **Be discoverable**: Other users can find your profile
+- **Share your collection**: Send your profile URL to friends
+- **Build connections**: Connect with collectors who share your interests
+
+<Note>
+FootyCollect is designed to balance community sharing with privacy control. You choose exactly what to share and what to keep private.
+</Note>

@@ -1,0 +1,419 @@
+---
+title: Service Layer Pattern
+description: Service layer architecture for encapsulating business logic in FootyCollect
+---
+
+FootyCollect uses a Service Layer pattern to encapsulate business logic and keep views focused on HTTP concerns. This architectural pattern separates business rules from presentation logic, making the codebase more maintainable and testable.
+
+## Overview
+
+The service layer sits between views and models, orchestrating complex operations that involve multiple models, external APIs, or background tasks.
+
+```python
+from footycollect.collection.services import (
+    get_item_service,
+    get_photo_service,
+    get_collection_service,
+)
+```
+
+## Why Service Layer?
+
+### The Problem
+
+Without a service layer, views often become bloated with:
+- Multiple model interactions
+- Complex transaction management
+- External API integration logic
+- Image processing workflows
+- Business rule validation
+
+This makes views hard to test and maintain.
+
+### The Solution
+
+The service layer pattern addresses these issues by:
+
+1. **Separation of Concerns**: Views handle HTTP, services handle business logic
+2. **Reusability**: Services can be used from views, management commands, API endpoints, and Celery tasks
+3. **Testability**: Business logic can be tested without the HTTP layer
+4. **Maintainability**: Changes to business logic are localized in services
+5. **Transaction Management**: Services define clear transaction boundaries
+
+<Info>
+This architectural decision is documented in [ADR 0002: Service Layer Pattern](https://github.com/yourusername/footycollect/blob/main/docs/ARCHITECTURE/decisions/0002-service-layer-pattern.md).
+</Info>
+
+## Available Services
+
+FootyCollect provides several service classes:
+
+| Service | Purpose |
+|---------|--------|
+| `ItemService` | Item CRUD operations and collection management |
+| `PhotoService` | Photo upload, processing, and management |
+| `CollectionService` | Collection-level operations and analytics |
+| `ItemFKAPIService` | External Football Kit Archive API integration |
+| `ColorService` | Color management |
+| `SizeService` | Size management |
+
+## Service Registry
+
+Services are accessed through a centralized registry that enables dependency injection and testability.
+
+### Registry Pattern
+
+```python
+class ServiceRegistry:
+    """Registry for managing service instances and dependencies."""
+    
+    _services: dict[str, Any] = {}
+    
+    def register_service(self, name: str, service_instance: Any) -> None:
+        """Register a service instance."""
+        self._services[name] = service_instance
+    
+    def get_service(self, name: str) -> Any:
+        """Get a service instance."""
+        if name not in self._services:
+            raise KeyError(f"Service '{name}' not registered")
+        return self._services[name]
+
+# Global registry instance
+service_registry = ServiceRegistry()
+service_registry.initialize_default_services()
+```
+
+Source: `footycollect/collection/services/service_registry.py:17-92`
+
+### Accessing Services
+
+```python
+# Using convenience functions
+from footycollect.collection.services import (
+    get_item_service,
+    get_photo_service,
+)
+
+item_service = get_item_service()
+photo_service = get_photo_service()
+
+# Or via registry directly
+from footycollect.collection.services import service_registry
+
+item_service = service_registry.get_item_service()
+```
+
+## Service Interface
+
+All services follow a consistent pattern:
+
+### Stateless Design
+
+Services are stateless classes, instantiated per operation:
+
+```python
+service = get_item_service()
+item = service.create_item(user, item_data)
+```
+
+This ensures no state is shared between requests.
+
+### Transaction Management
+
+Services handle database transactions internally using Django's `transaction.atomic()`:
+
+```python
+class ItemService:
+    def create_item_with_photos(
+        self,
+        user: User,
+        item_data: dict[str, Any],
+        photos: list[Any] | None = None,
+    ) -> Jersey:
+        with transaction.atomic():
+            # Create the item
+            item = self.item_repository.create(**item_data)
+            
+            # Handle photos if provided
+            if photos:
+                self._process_item_photos(item, photos)
+            
+            return item
+```
+
+Source: `footycollect/collection/services/item_service.py:33-61`
+
+### Error Handling
+
+Services raise domain-specific exceptions that views can catch:
+
+```python
+class PhotoService:
+    def _validate_photos(self, photo_files: list[UploadedFile]) -> None:
+        if not photo_files:
+            raise ValueError("No photos provided")
+        
+        # Check file count limit
+        if len(photo_files) > 10:
+            raise ValueError("Too many photos. Maximum 10 photos allowed per item.")
+        
+        for photo_file in photo_files:
+            # Check file size (max 15MB)
+            if photo_file.size > 15 * 1024 * 1024:
+                raise ValueError(f"Photo {photo_file.name} is too large. Maximum size is 15MB.")
+            
+            # Check file type
+            allowed_types = ["image/jpeg", "image/png", "image/webp", "image/gif", "image/avif"]
+            if photo_file.content_type not in allowed_types:
+                raise ValueError(f"Photo {photo_file.name} has an invalid format.")
+```
+
+Source: `footycollect/collection/services/photo_service.py:224-257`
+
+## Service Implementations
+
+### ItemService
+
+Handles item creation, updates, deletion, and queries:
+
+```python
+class ItemService:
+    def __init__(self):
+        self.item_repository = ItemRepository()
+        self.photo_repository = PhotoRepository()
+        self.color_repository = ColorRepository()
+    
+    def create_item_with_photos(
+        self,
+        user: User,
+        item_data: dict[str, Any],
+        photos: list[Any] | None = None,
+    ) -> Jersey:
+        """Create an item with associated photos."""
+        with transaction.atomic():
+            item = self.item_repository.create(**item_data)
+            if photos:
+                self._process_item_photos(item, photos)
+            return item
+    
+    def get_user_collection_summary(self, user: User) -> dict[str, Any]:
+        """Get a summary of the user's collection."""
+        return {
+            "total_items": items.count(),
+            "by_type": self.item_repository.get_user_item_count_by_type(user),
+            "by_condition": self._get_items_by_condition(items),
+            "recent_items": self.item_repository.get_recent_items(limit=5, user=user),
+        }
+```
+
+Source: `footycollect/collection/services/item_service.py:20-176`
+
+### PhotoService
+
+Manages photo uploads and processing:
+
+```python
+class PhotoService:
+    def __init__(self):
+        self.photo_repository = PhotoRepository()
+    
+    def upload_photos_for_item(
+        self,
+        item,
+        photo_files: list[UploadedFile],
+        user: User,
+    ) -> list[Photo]:
+        """Upload multiple photos for an item."""
+        if not photo_files:
+            return []
+        
+        # Validate photos
+        self._validate_photos(photo_files)
+        
+        with transaction.atomic():
+            photos = []
+            current_max_order = self.photo_repository.get_photos_by_item(item).count()
+            
+            for index, photo_file in enumerate(photo_files):
+                photo = self.photo_repository.create(
+                    image=photo_file,
+                    content_object=item,
+                    order=current_max_order + index,
+                    user=user,
+                )
+                photos.append(photo)
+            
+            return photos
+```
+
+Source: `footycollect/collection/services/photo_service.py:30-69`
+
+### ItemFKAPIService
+
+Integrates with external Football Kit Archive API:
+
+```python
+class ItemFKAPIService:
+    def process_item_creation(self, form, user, item_type):
+        """Process item creation with FKAPI data."""
+        # Extract FKAPI kit ID from form
+        kit_id = form.cleaned_data.get('fkapi_kit_id')
+        
+        # Fetch kit data from external API
+        kit_data = self._fetch_kit_data(kit_id)
+        
+        # Create item with enriched metadata
+        item_service = get_item_service()
+        item = item_service.create_item(user, {
+            'name': kit_data['name'],
+            'club': kit_data['club'],
+            'season': kit_data['season'],
+            # ... other fields
+        })
+        
+        # Download and attach photos
+        self._download_kit_photos(item, kit_data['photos'])
+        
+        return item
+```
+
+## Using Services in Views
+
+Views should delegate business logic to services and focus on HTTP concerns:
+
+### Class-Based View Example
+
+```python
+from django.views.generic import CreateView
+from django.contrib import messages
+from django.shortcuts import redirect
+from footycollect.collection.services import get_item_service
+
+class JerseyCreateView(CreateView):
+    def form_valid(self, form):
+        item_service = get_item_service()
+        
+        try:
+            item = item_service.create_item_with_photos(
+                user=self.request.user,
+                item_data=form.cleaned_data,
+                photos=self.request.FILES.getlist('photos')
+            )
+            messages.success(self.request, "Jersey created successfully!")
+            return redirect('item-detail', pk=item.pk)
+        except ValueError as e:
+            messages.error(self.request, str(e))
+            return self.form_invalid(form)
+```
+
+### API View Example
+
+```python
+from rest_framework import viewsets
+from rest_framework.decorators import action
+from footycollect.collection.services import get_item_service, get_photo_service
+
+class ItemViewSet(viewsets.ModelViewSet):
+    @action(detail=True, methods=['post'])
+    def upload_photos(self, request, pk=None):
+        item = self.get_object()
+        photo_service = get_photo_service()
+        
+        try:
+            photos = photo_service.upload_photos_for_item(
+                item=item,
+                photo_files=request.FILES.getlist('photos'),
+                user=request.user
+            )
+            return Response({'message': f'{len(photos)} photos uploaded successfully'})
+        except ValueError as e:
+            return Response({'error': str(e)}, status=400)
+```
+
+## Testing Services
+
+Services are easily testable in isolation without HTTP layer:
+
+```python
+import pytest
+from footycollect.collection.services import get_item_service
+from footycollect.users.tests.factories import UserFactory
+
+@pytest.mark.django_db
+class TestItemService:
+    def test_create_item(self):
+        user = UserFactory()
+        item_service = get_item_service()
+        
+        item = item_service.create_item(user, {
+            'name': 'Test Jersey',
+            'item_type': 'jersey',
+            'brand': brand,
+            'club': club,
+        })
+        
+        assert item.base_item.name == 'Test Jersey'
+        assert item.base_item.user == user
+        assert item.base_item.item_type == 'jersey'
+    
+    def test_create_item_with_photos(self, mock_photo_file):
+        user = UserFactory()
+        item_service = get_item_service()
+        
+        item = item_service.create_item_with_photos(
+            user=user,
+            item_data={'name': 'Jersey with Photos'},
+            photos=[mock_photo_file]
+        )
+        
+        assert item.photos.count() == 1
+```
+
+## Best Practices
+
+<Note>
+**Guidelines for using the service layer:**
+
+1. **Keep Views Thin**: Views should only handle HTTP concerns (request/response)
+2. **Use Services for Complex Logic**: Any operation involving multiple models or business rules
+3. **Handle Transactions in Services**: Services define transaction boundaries with `transaction.atomic()`
+4. **Raise Domain Exceptions**: Use descriptive exceptions (ValueError, etc.) for business rule violations
+5. **Test Services Independently**: Write unit tests for services without involving views
+6. **Avoid Service-to-Service Calls**: Services should coordinate repositories, not other services
+7. **Simple CRUD Can Stay in Views**: Not everything needs a service; use judgment
+</Note>
+
+## When to Use Services
+
+**Use a service when:**
+- Operation involves multiple models
+- Complex business logic or validation
+- External API integration
+- Background task coordination
+- Transaction spans multiple operations
+- Logic needs to be reused (views, APIs, tasks)
+
+**Views are sufficient when:**
+- Simple CRUD operations on a single model
+- No complex business rules
+- Standard Django form processing
+- Direct ORM queries suffice
+
+## Service Dependencies
+
+Services use repositories for data access:
+
+```python
+class ItemService:
+    def __init__(self):
+        self.item_repository = ItemRepository()
+        self.photo_repository = PhotoRepository()
+        self.color_repository = ColorRepository()
+```
+
+This layering ensures:
+- Services focus on business logic
+- Repositories handle data access
+- Clear separation of concerns
+- Easier to test and maintain

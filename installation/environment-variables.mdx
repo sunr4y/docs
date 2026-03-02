@@ -1,0 +1,652 @@
+---
+title: 'Environment Variables'
+description: 'Complete reference for all FootyCollect configuration options'
+icon: 'gear'
+---
+
+## Overview
+
+FootyCollect uses environment variables for configuration. For local development, create a `.env` file in the project root or use the `.envs/.local/` directory structure for Docker.
+
+<Note>
+  Copy `deploy/env.example` to `.env` as a starting point, then customize the values for your environment.
+</Note>
+
+## Django Core Settings
+
+Core Django configuration options.
+
+<ParamField path="DJANGO_SECRET_KEY" type="string" required>
+  Django secret key for cryptographic signing. Generate a secure random string.
+  
+  **Production**: Use a strong random key (50+ characters)
+  
+  **Development**: Any string is fine
+  
+  ```bash
+  # Generate with Python
+  python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
+  ```
+</ParamField>
+
+<ParamField path="DJANGO_DEBUG" type="boolean" default="False">
+  Enable Django debug mode.
+  
+  **Production**: Must be `False`
+  
+  **Development**: `True`
+  
+  <Warning>
+    Never enable DEBUG in production! It exposes sensitive information.
+  </Warning>
+</ParamField>
+
+<ParamField path="DJANGO_ALLOWED_HOSTS" type="string" required>
+  Comma-separated list of allowed hostnames.
+  
+  **Production**: Your domain(s)
+  ```bash
+  DJANGO_ALLOWED_HOSTS=footycollect.com,www.footycollect.com
+  ```
+  
+  **Development**: Local addresses
+  ```bash
+  DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0
+  ```
+</ParamField>
+
+<ParamField path="DJANGO_ADMIN_URL" type="string" default="admin/">
+  URL path for Django admin interface.
+  
+  For security, consider using a non-standard path in production:
+  ```bash
+  DJANGO_ADMIN_URL=my-secret-admin-path/
+  ```
+</ParamField>
+
+## Database
+
+PostgreSQL database configuration.
+
+<ParamField path="DATABASE_URL" type="string" required>
+  PostgreSQL connection string in URL format.
+  
+  Format: `postgresql://USER:PASSWORD@HOST:PORT/DATABASE`
+  
+  **Production**:
+  ```bash
+  DATABASE_URL=postgresql://footycollect:secure_password@localhost:5432/footycollect_db
+  ```
+  
+  **Docker**:
+  ```bash
+  DATABASE_URL=postgresql://footycollect:local_password@postgres:5432/footycollect
+  ```
+</ParamField>
+
+<ParamField path="CONN_MAX_AGE" type="integer" default="60">
+  Database connection pooling lifetime in seconds.
+  
+  Recommended: `60` for production
+</ParamField>
+
+## Redis
+
+Redis cache and Celery message broker configuration.
+
+<ParamField path="REDIS_URL" type="string" required>
+  Redis connection string.
+  
+  Format: `redis://HOST:PORT/DB`
+  
+  **Production**:
+  ```bash
+  REDIS_URL=redis://localhost:6379/0
+  ```
+  
+  **Docker**:
+  ```bash
+  REDIS_URL=redis://redis:6379/0
+  ```
+</ParamField>
+
+## API Rate Limiting
+
+Django REST Framework throttle configuration for `/api/` endpoints.
+
+<ParamField path="DJANGO_DRF_USER_THROTTLE_RATE" type="string" default="100/hour">
+  Rate limit for authenticated users.
+  
+  Format: `requests/period` (e.g., `100/hour`, `1000/day`)
+  
+  ```bash
+  DJANGO_DRF_USER_THROTTLE_RATE=100/hour
+  ```
+</ParamField>
+
+<ParamField path="DJANGO_DRF_ANON_THROTTLE_RATE" type="string" default="20/hour">
+  Rate limit for anonymous users.
+  
+  ```bash
+  DJANGO_DRF_ANON_THROTTLE_RATE=20/hour
+  ```
+</ParamField>
+
+## Security Headers
+
+HTTPS and security header configuration for production.
+
+<ParamField path="DJANGO_SECURE_SSL_REDIRECT" type="boolean" default="True">
+  Redirect all HTTP requests to HTTPS.
+  
+  **Production**: `True`
+  
+  **Development**: `False`
+</ParamField>
+
+<ParamField path="DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS" type="boolean" default="True">
+  Include subdomains in HSTS (HTTP Strict Transport Security) policy.
+  
+  **Production**: `True`
+</ParamField>
+
+<ParamField path="DJANGO_SECURE_HSTS_PRELOAD" type="boolean" default="True">
+  Enable HSTS preload.
+  
+  **Production**: `True` (submit to hstspreload.org)
+</ParamField>
+
+<ParamField path="DJANGO_SECURE_CONTENT_TYPE_NOSNIFF" type="boolean" default="True">
+  Prevent MIME type sniffing.
+  
+  **Production**: `True`
+</ParamField>
+
+<ParamField path="DJANGO_SESSION_COOKIE_SAMESITE" type="string" default="Lax">
+  SameSite cookie policy for session cookies.
+  
+  Options: `Strict`, `Lax`, `None`
+  
+  Recommended: `Lax`
+</ParamField>
+
+<ParamField path="DJANGO_CSRF_COOKIE_SAMESITE" type="string" default="Lax">
+  SameSite cookie policy for CSRF cookies.
+  
+  Recommended: `Lax`
+</ParamField>
+
+<ParamField path="DJANGO_REFERRER_POLICY" type="string" default="strict-origin-when-cross-origin">
+  Referrer-Policy header value.
+  
+  Recommended: `strict-origin-when-cross-origin`
+</ParamField>
+
+<ParamField path="DJANGO_PERMISSIONS_POLICY" type="string">
+  Permissions-Policy header for controlling browser features.
+  
+  Default disables geolocation, microphone, camera, and payment APIs:
+  ```bash
+  DJANGO_PERMISSIONS_POLICY=geolocation=(), microphone=(), camera=(), payment=()
+  ```
+</ParamField>
+
+## Content Security Policy (CSP)
+
+Content-Security-Policy configuration to prevent XSS attacks.
+
+<ParamField path="DJANGO_CSP_ENABLED" type="boolean" default="True">
+  Enable Content Security Policy.
+  
+  **Production**: `True`
+  
+  **Development**: Can be `False` for easier debugging
+</ParamField>
+
+<ParamField path="DJANGO_CSP_IMG_SRC" type="string">
+  Allowed sources for images. Use comma-separated values with quoted keywords.
+  
+  Default includes Gravatar and Football Kit Archive:
+  ```bash
+  DJANGO_CSP_IMG_SRC='self', data:, blob:, https://www.gravatar.com, https://cdn.footballkitarchive.com, https://www.footballkitarchive.com, https://YOUR-BUCKET.s3.amazonaws.com
+  ```
+  
+  <Note>
+    Update with your actual S3/R2 bucket domain if using cloud storage.
+  </Note>
+</ParamField>
+
+<ParamField path="DJANGO_CSP_DEFAULT_SRC" type="string">
+  Default source policy (fallback for other directives).
+  
+  ```bash
+  DJANGO_CSP_DEFAULT_SRC='self'
+  ```
+</ParamField>
+
+<ParamField path="DJANGO_CSP_SCRIPT_SRC" type="string">
+  Allowed sources for JavaScript.
+  
+  Default includes CDN for UI libraries:
+  ```bash
+  DJANGO_CSP_SCRIPT_SRC='self', 'unsafe-inline', 'unsafe-eval', https://cdnjs.cloudflare.com
+  ```
+</ParamField>
+
+<ParamField path="DJANGO_CSP_STYLE_SRC" type="string">
+  Allowed sources for CSS.
+  
+  ```bash
+  DJANGO_CSP_STYLE_SRC='self', 'unsafe-inline', https://cdnjs.cloudflare.com, https://fonts.googleapis.com
+  ```
+</ParamField>
+
+<ParamField path="DJANGO_CSP_FONT_SRC" type="string">
+  Allowed sources for fonts.
+  
+  ```bash
+  DJANGO_CSP_FONT_SRC='self', https://cdnjs.cloudflare.com, https://fonts.gstatic.com
+  ```
+</ParamField>
+
+<ParamField path="DJANGO_CSP_CONNECT_SRC" type="string">
+  Allowed sources for AJAX, WebSockets, and EventSource.
+  
+  ```bash
+  DJANGO_CSP_CONNECT_SRC='self'
+  ```
+</ParamField>
+
+<ParamField path="DJANGO_CSP_FRAME_ANCESTORS" type="string">
+  Allowed sources that can embed this site in frames.
+  
+  ```bash
+  DJANGO_CSP_FRAME_ANCESTORS='self'
+  ```
+</ParamField>
+
+<ParamField path="DJANGO_CSP_FORM_ACTION" type="string">
+  Allowed form submission targets.
+  
+  ```bash
+  DJANGO_CSP_FORM_ACTION='self'
+  ```
+</ParamField>
+
+## Email Configuration
+
+Email sending via SendGrid.
+
+<ParamField path="SENDGRID_API_KEY" type="string">
+  SendGrid API key for sending emails.
+  
+  Get from: https://app.sendgrid.com/settings/api_keys
+  
+  ```bash
+  SENDGRID_API_KEY=SG.xxxxxxxxxxxxxxxxxxxxx
+  ```
+</ParamField>
+
+<ParamField path="SENDGRID_API_URL" type="string" default="https://api.sendgrid.com/v3/">
+  SendGrid API endpoint URL.
+</ParamField>
+
+<ParamField path="DJANGO_DEFAULT_FROM_EMAIL" type="string">
+  Default "from" address for emails.
+  
+  ```bash
+  DJANGO_DEFAULT_FROM_EMAIL=footycollect <noreply@your-domain.com>
+  ```
+</ParamField>
+
+<ParamField path="DJANGO_SERVER_EMAIL" type="string">
+  "From" address for server error emails.
+  
+  ```bash
+  DJANGO_SERVER_EMAIL=footycollect <noreply@your-domain.com>
+  ```
+</ParamField>
+
+<ParamField path="DJANGO_EMAIL_SUBJECT_PREFIX" type="string" default="[footycollect]">
+  Prefix added to email subjects.
+</ParamField>
+
+## Error Tracking (Sentry)
+
+Sentry integration for error monitoring and performance tracking.
+
+<ParamField path="SENTRY_DSN" type="string">
+  Sentry Data Source Name (DSN) for error reporting.
+  
+  Get from your Sentry project settings.
+  
+  ```bash
+  SENTRY_DSN=https://xxxxxxxxxxxxx@sentry.io/1234567
+  ```
+</ParamField>
+
+<ParamField path="SENTRY_ENVIRONMENT" type="string" default="production">
+  Environment name for Sentry (production, staging, development).
+</ParamField>
+
+<ParamField path="SENTRY_TRACES_SAMPLE_RATE" type="float" default="0.0">
+  Percentage of transactions to sample for performance monitoring (0.0-1.0).
+  
+  `0.0` = disabled, `1.0` = 100% of requests
+  
+  Recommended: `0.1` (10%) for production to limit costs
+</ParamField>
+
+## Storage Backend
+
+Media file storage configuration (AWS S3 or Cloudflare R2).
+
+<ParamField path="STORAGE_BACKEND" type="string" default="local">
+  Storage backend for media files.
+  
+  Options:
+  - `local` - Local filesystem (development)
+  - `aws` - Amazon S3
+  - `r2` - Cloudflare R2
+  
+  ```bash
+  STORAGE_BACKEND=aws
+  ```
+</ParamField>
+
+### AWS S3 Storage
+
+Configuration when `STORAGE_BACKEND=aws`.
+
+<ParamField path="DJANGO_AWS_ACCESS_KEY_ID" type="string">
+  AWS IAM access key ID.
+</ParamField>
+
+<ParamField path="DJANGO_AWS_SECRET_ACCESS_KEY" type="string">
+  AWS IAM secret access key.
+</ParamField>
+
+<ParamField path="DJANGO_AWS_STORAGE_BUCKET_NAME" type="string">
+  S3 bucket name for media files.
+  
+  ```bash
+  DJANGO_AWS_STORAGE_BUCKET_NAME=footycollect-media
+  ```
+</ParamField>
+
+<ParamField path="DJANGO_AWS_S3_REGION_NAME" type="string" default="us-east-1">
+  AWS region for S3 bucket.
+</ParamField>
+
+<ParamField path="DJANGO_AWS_S3_CUSTOM_DOMAIN" type="string">
+  Custom domain for S3 bucket (optional, for CloudFront CDN).
+  
+  ```bash
+  DJANGO_AWS_S3_CUSTOM_DOMAIN=cdn.your-domain.com
+  ```
+</ParamField>
+
+### Cloudflare R2 Storage
+
+Configuration when `STORAGE_BACKEND=r2`.
+
+<ParamField path="CLOUDFLARE_ACCESS_KEY_ID" type="string">
+  Cloudflare R2 access key ID.
+</ParamField>
+
+<ParamField path="CLOUDFLARE_SECRET_ACCESS_KEY" type="string">
+  Cloudflare R2 secret access key.
+</ParamField>
+
+<ParamField path="CLOUDFLARE_BUCKET_NAME" type="string">
+  R2 bucket name.
+  
+  ```bash
+  CLOUDFLARE_BUCKET_NAME=footycollect-media
+  ```
+</ParamField>
+
+<ParamField path="CLOUDFLARE_R2_ENDPOINT_URL" type="string">
+  R2 endpoint URL.
+  
+  Format: `https://<account-id>.r2.cloudflarestorage.com`
+  
+  ```bash
+  CLOUDFLARE_R2_ENDPOINT_URL=https://abc123.r2.cloudflarestorage.com
+  ```
+</ParamField>
+
+<ParamField path="CLOUDFLARE_R2_REGION" type="string" default="auto">
+  R2 region (usually `auto`).
+</ParamField>
+
+<ParamField path="CLOUDFLARE_R2_CUSTOM_DOMAIN" type="string">
+  Custom domain for R2 bucket (optional).
+  
+  ```bash
+  CLOUDFLARE_R2_CUSTOM_DOMAIN=media.your-domain.com
+  ```
+</ParamField>
+
+## External Image Downloads
+
+Configuration for downloading images from external sources (e.g., Football Kit Archive).
+
+<ParamField path="DJANGO_ALLOWED_EXTERNAL_IMAGE_HOSTS" type="string">
+  Comma-separated list of allowed hostnames for external image downloads (SSRF protection).
+  
+  ```bash
+  DJANGO_ALLOWED_EXTERNAL_IMAGE_HOSTS=cdn.footballkitarchive.com,www.footballkitarchive.com
+  ```
+  
+  <Warning>
+    Only add trusted domains to prevent Server-Side Request Forgery (SSRF) attacks.
+  </Warning>
+</ParamField>
+
+## FKAPI Integration
+
+Football Kit Archive API configuration.
+
+<ParamField path="FKA_API_IP" type="string">
+  IP address or hostname of the FKAPI server.
+  
+  Required for Football Kit Archive integration.
+  
+  ```bash
+  FKA_API_IP=192.168.1.100
+  # or
+  FKA_API_IP=fkapi.your-domain.com
+  ```
+  
+  See [FKAPI GitHub](https://github.com/sunr4y/fkapi) for setup instructions.
+</ParamField>
+
+<ParamField path="API_KEY" type="string">
+  API key for authenticating with FKAPI.
+  
+  ```bash
+  API_KEY=your-fkapi-authentication-key
+  ```
+</ParamField>
+
+## Rotating Proxy
+
+Optional proxy configuration for external image downloads to avoid rate limiting.
+
+<ParamField path="ROTATING_PROXY_URL" type="string">
+  Proxy server URL.
+  
+  Supports HTTP, HTTPS, and SOCKS5 protocols:
+  ```bash
+  ROTATING_PROXY_URL=http://proxy.example.com:8080
+  # or
+  ROTATING_PROXY_URL=socks5://proxy.example.com:1080
+  ```
+</ParamField>
+
+<ParamField path="ROTATING_PROXY_USERNAME" type="string">
+  Proxy authentication username (if required).
+</ParamField>
+
+<ParamField path="ROTATING_PROXY_PASSWORD" type="string">
+  Proxy authentication password (if required).
+</ParamField>
+
+## Compression
+
+Static file compression configuration.
+
+<ParamField path="COMPRESS_ENABLED" type="boolean" default="True">
+  Enable django-compressor for CSS/JS minification.
+  
+  **Production**: `True`
+  
+  **Development**: Can be `False` for faster builds
+</ParamField>
+
+## Example Configurations
+
+### Development (.env)
+
+```bash
+# Django Settings
+DJANGO_SECRET_KEY=local-dev-key-not-for-production
+DJANGO_DEBUG=True
+DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1
+
+# Database
+DATABASE_URL=postgresql://footycollect:devpassword@localhost:5432/footycollect_dev
+
+# Redis
+REDIS_URL=redis://localhost:6379/0
+
+# Security (relaxed for local dev)
+DJANGO_SECURE_SSL_REDIRECT=False
+DJANGO_CSP_ENABLED=False
+
+# Storage
+STORAGE_BACKEND=local
+
+# Compression
+COMPRESS_ENABLED=False
+```
+
+### Production (.env)
+
+```bash
+# Django Settings
+DJANGO_SECRET_KEY=<generate-secure-50-char-key>
+DJANGO_DEBUG=False
+DJANGO_ALLOWED_HOSTS=footycollect.com,www.footycollect.com
+DJANGO_ADMIN_URL=secret-admin-path/
+
+# Database
+DATABASE_URL=postgresql://footycollect:secure_db_pass@localhost:5432/footycollect_prod
+CONN_MAX_AGE=60
+
+# Redis
+REDIS_URL=redis://localhost:6379/0
+
+# API Rate Limiting
+DJANGO_DRF_USER_THROTTLE_RATE=100/hour
+DJANGO_DRF_ANON_THROTTLE_RATE=20/hour
+
+# Security
+DJANGO_SECURE_SSL_REDIRECT=True
+DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS=True
+DJANGO_SECURE_HSTS_PRELOAD=True
+DJANGO_SECURE_CONTENT_TYPE_NOSNIFF=True
+DJANGO_SESSION_COOKIE_SAMESITE=Lax
+DJANGO_CSRF_COOKIE_SAMESITE=Lax
+
+# CSP
+DJANGO_CSP_ENABLED=True
+DJANGO_CSP_IMG_SRC='self', data:, blob:, https://www.gravatar.com, https://cdn.footballkitarchive.com, https://footycollect-media.s3.amazonaws.com
+
+# Email (SendGrid)
+SENDGRID_API_KEY=SG.xxxxxxxxxxxxxxxxxxxxxxx
+DJANGO_DEFAULT_FROM_EMAIL=FootyCollect <noreply@footycollect.com>
+DJANGO_SERVER_EMAIL=FootyCollect <noreply@footycollect.com>
+
+# Sentry
+SENTRY_DSN=https://xxxxxxx@sentry.io/1234567
+SENTRY_ENVIRONMENT=production
+SENTRY_TRACES_SAMPLE_RATE=0.1
+
+# Storage (AWS S3)
+STORAGE_BACKEND=aws
+DJANGO_AWS_ACCESS_KEY_ID=AKIAXXXXXXXXXXXXXXXX
+DJANGO_AWS_SECRET_ACCESS_KEY=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+DJANGO_AWS_STORAGE_BUCKET_NAME=footycollect-media
+DJANGO_AWS_S3_REGION_NAME=us-east-1
+
+# External Images
+DJANGO_ALLOWED_EXTERNAL_IMAGE_HOSTS=cdn.footballkitarchive.com,www.footballkitarchive.com
+
+# FKAPI
+FKA_API_IP=192.168.1.100
+API_KEY=your-fkapi-key
+
+# Compression
+COMPRESS_ENABLED=True
+```
+
+### Docker Development (.envs/.local/)
+
+**.envs/.local/.django**:
+```bash
+DJANGO_SETTINGS_MODULE=config.settings.local
+DJANGO_SECRET_KEY=docker-local-secret-key
+DJANGO_DEBUG=True
+DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,0.0.0.0
+
+REDIS_URL=redis://redis:6379/0
+CELERY_BROKER_URL=redis://redis:6379/0
+
+EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
+EMAIL_HOST=mailpit
+EMAIL_PORT=1025
+```
+
+**.envs/.local/.postgres**:
+```bash
+POSTGRES_HOST=postgres
+POSTGRES_PORT=5432
+POSTGRES_DB=footycollect
+POSTGRES_USER=footycollect
+POSTGRES_PASSWORD=local_dev_password
+
+DATABASE_URL=postgresql://footycollect:local_dev_password@postgres:5432/footycollect
+```
+
+## Validation
+
+Run Django's production deployment checks:
+
+```bash
+python manage.py check --deploy
+```
+
+This validates:
+- Security settings
+- Required environment variables
+- Database connectivity
+- Static file configuration
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Local Setup" icon="code" href="/installation/local-setup">
+    Manual local installation guide
+  </Card>
+  <Card title="Docker Setup" icon="docker" href="/installation/docker-setup">
+    Docker Compose development environment
+  </Card>
+  <Card title="Deployment" icon="rocket" href="/deployment">
+    Production deployment guide
+  </Card>
+  <Card title="Development" icon="wrench" href="/development">
+    Learn about the architecture
+  </Card>
+</CardGroup>

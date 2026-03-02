@@ -1,0 +1,105 @@
+---
+title: Management commands overview
+description: Django management commands for FootyCollect maintenance and operations
+---
+
+FootyCollect includes several Django management commands for administrative tasks, bulk operations, and system maintenance.
+
+## Available commands
+
+<CardGroup cols={2}>
+  <Card title="populate_user_collection" icon="download" href="/commands/populate-collection">
+    Bulk import collections from Football Kit Archive
+  </Card>
+  <Card title="cleanup_orphaned_photos" icon="trash" href="/commands/cleanup-orphaned-photos">
+    Remove orphaned photo files from storage
+  </Card>
+  <Card title="setup_beat_schedule" icon="clock" href="/commands/setup-beat-schedule">
+    Configure periodic Celery tasks
+  </Card>
+  <Card title="fetch_home_kits" icon="images" href="/commands/fetch-home-kits">
+    Fetch and cache kits for homepage display
+  </Card>
+  <Card title="migrate_photos_to_remote" icon="cloud-arrow-up" href="/commands/migrate-photos-to-remote">
+    Migrate photos from local to remote storage
+  </Card>
+</CardGroup>
+
+## Basic usage
+
+All management commands follow Django's standard pattern:
+
+```bash
+python manage.py <command_name> [arguments] [options]
+```
+
+### Common options
+
+Most commands support these common options:
+
+- `--dry-run` - Preview actions without making changes
+- `--verbose` - Show detailed output
+- `--help` - Display command help
+
+## When to use management commands
+
+<AccordionGroup>
+  <Accordion title="Bulk data import">
+    Use `populate_user_collection` to import collections from Football Kit Archive for testing or migrating data.
+  </Accordion>
+  
+  <Accordion title="Storage cleanup">
+    Use `cleanup_orphaned_photos` to remove photo files that are no longer referenced in the database, freeing up storage space.
+  </Accordion>
+  
+  <Accordion title="Periodic task setup">
+    Use `setup_beat_schedule` after deployment to configure automatic cleanup tasks that run on a schedule.
+  </Accordion>
+</AccordionGroup>
+
+## Running in production
+
+<Warning>
+  Always use `--dry-run` first to preview changes before running commands in production.
+</Warning>
+
+### Docker deployment
+
+Run commands in the Django container:
+
+```bash
+docker compose -f docker-compose.production.yml exec django python manage.py <command>
+```
+
+### Bare metal deployment
+
+Activate the virtual environment first:
+
+```bash
+cd /var/www/footycollect
+source venv/bin/activate
+python manage.py <command>
+```
+
+## Monitoring command execution
+
+Commands log to Django's standard logging system. Check logs for detailed execution information:
+
+```bash
+# Docker
+docker compose logs django
+
+# Systemd
+journalctl -u gunicorn -f
+```
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Development" icon="code" href="/development/project-structure">
+    Learn about FootyCollect's project structure
+  </Card>
+  <Card title="Celery tasks" icon="gears" href="/development/celery-tasks">
+    Understand background task processing
+  </Card>
+</CardGroup>

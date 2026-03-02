@@ -1,0 +1,233 @@
+---
+title: 'Collection Endpoints'
+description: 'API endpoints for managing user collections in FootyCollect'
+---
+
+## Overview
+
+The Collections API provides endpoints for viewing and managing user collections of football memorabilia. Collections are user-specific groupings of items that can be filtered, searched, and displayed.
+
+**Base URL**: `/api/collections/`
+
+**Authentication**: Token authentication required for all endpoints.
+
+## Interactive API Documentation
+
+<Note>
+  Full interactive API documentation for collection endpoints is available at `/api/docs/` when running the FootyCollect server. The Swagger UI interface allows you to explore and test all endpoints with real-time responses.
+</Note>
+
+## OpenAPI Schema
+
+The complete OpenAPI schema for collection endpoints is available at:
+
+```
+GET /api/schema/
+```
+
+This provides a machine-readable specification of all collection endpoints, request/response schemas, and validation rules.
+
+## What is a Collection?
+
+In FootyCollect, a collection represents all items owned by a user. Collections can be:
+
+- **Public** - Visible to all users
+- **Private** - Only visible to the owner
+- **Filtered** - By club, brand, season, item type, etc.
+- **Searched** - By keywords, player names, descriptions
+
+## Collection Features
+
+### Filtering
+
+Collections support advanced filtering capabilities:
+
+- Filter by **club** (e.g., show only Real Madrid items)
+- Filter by **brand** (e.g., show only Adidas items)
+- Filter by **season** (e.g., show only 2023-24 season items)
+- Filter by **item type** (e.g., show only jerseys)
+- Filter by **design** (e.g., show only striped items)
+- Filter by **condition** (e.g., show only BNWT items)
+- Filter by **tags** (e.g., show only signed items)
+
+### Sorting
+
+Collections can be sorted by:
+
+- **Date added** (newest/oldest first)
+- **Name** (alphabetical)
+- **Club** (alphabetical)
+- **Brand** (alphabetical)
+- **Season** (chronological)
+- **Condition** (rating)
+
+### Privacy Controls
+
+Users can control the visibility of their collections:
+
+- **Public collections** are visible to all users and search engines
+- **Private collections** are only visible when authenticated as the owner
+- **Draft items** are excluded from public collection views
+
+## RESTful Conventions
+
+Collection endpoints follow standard RESTful conventions:
+
+- `GET /api/collections/` - List all public collections
+- `GET /api/collections/{user_id}/` - View a specific user's collection
+- `GET /api/collections/{user_id}/items/` - List items in a user's collection
+- `GET /api/collections/me/` - View your own collection
+- `GET /api/collections/me/items/` - List items in your collection
+
+## Sample Request
+
+<CodeGroup>
+```bash cURL - Get Your Collection
+curl -X GET "http://localhost:8000/api/collections/me/items/" \
+  -H "Authorization: Token your_auth_token_here"
+```
+
+```bash cURL - Filter by Club
+curl -X GET "http://localhost:8000/api/collections/me/items/?club=12" \
+  -H "Authorization: Token your_auth_token_here"
+```
+
+```python Python
+import requests
+
+url = "http://localhost:8000/api/collections/me/items/"
+headers = {
+    "Authorization": "Token your_auth_token_here"
+}
+params = {
+    "club": 12,
+    "item_type": "jersey"
+}
+
+response = requests.get(url, headers=headers, params=params)
+print(response.json())
+```
+
+```javascript JavaScript
+fetch('http://localhost:8000/api/collections/me/items/?club=12&item_type=jersey', {
+  method: 'GET',
+  headers: {
+    'Authorization': 'Token your_auth_token_here'
+  }
+})
+.then(response => response.json())
+.then(data => console.log(data));
+```
+</CodeGroup>
+
+## Sample Response
+
+```json
+{
+  "count": 45,
+  "next": "http://localhost:8000/api/collections/me/items/?page=2",
+  "previous": null,
+  "results": [
+    {
+      "id": 1,
+      "item_type": "jersey",
+      "name": "Real Betis Home 2020-21 - XS - Joaquin#17 - Player Version",
+      "brand": {
+        "id": 5,
+        "name": "Kappa"
+      },
+      "club": {
+        "id": 12,
+        "name": "Real Betis",
+        "logo": "http://localhost:8000/media/clubs/betis.png"
+      },
+      "season": {
+        "id": 8,
+        "year": "2020-21"
+      },
+      "main_photo": "http://localhost:8000/media/item_photos_avif/photo_123.avif",
+      "condition": 9,
+      "is_private": false,
+      "created_at": "2024-01-15T10:30:00Z"
+    }
+  ]
+}
+```
+
+## Query Parameters
+
+<ParamField query="club" type="integer">
+  Filter by club ID
+</ParamField>
+
+<ParamField query="brand" type="integer">
+  Filter by brand ID
+</ParamField>
+
+<ParamField query="season" type="integer">
+  Filter by season ID
+</ParamField>
+
+<ParamField query="item_type" type="string">
+  Filter by item type: jersey, shorts, outerwear, tracksuit, pants, other
+</ParamField>
+
+<ParamField query="design" type="string">
+  Filter by design pattern
+</ParamField>
+
+<ParamField query="is_replica" type="boolean">
+  Filter by replica status
+</ParamField>
+
+<ParamField query="search" type="string">
+  Search by keywords (name, description, player name)
+</ParamField>
+
+<ParamField query="ordering" type="string">
+  Sort results: created_at, -created_at, name, -name, etc.
+</ParamField>
+
+<ParamField query="page" type="integer">
+  Page number for pagination
+</ParamField>
+
+<ParamField query="page_size" type="integer">
+  Number of results per page (default: 20, max: 100)
+</ParamField>
+
+## Statistics
+
+Collection endpoints may also provide statistics about a user's collection:
+
+- Total number of items
+- Items by type (jerseys, shorts, etc.)
+- Items by club
+- Items by brand
+- Items by season
+- Average condition rating
+
+## Related Models
+
+Collections interact with several related models:
+
+- **BaseItem** - The core item model
+- **User** - Collection owner
+- **Club** - Football clubs associated with items
+- **Brand** - Manufacturers of items
+- **Season** - Seasons associated with items
+- **Photo** - Photos of items in the collection
+
+## Learn More
+
+<Card title="OpenAPI Documentation" icon="book" href="/api/docs/">
+  Access the full interactive API documentation with request/response examples and the ability to test endpoints directly.
+</Card>
+
+<Card title="OpenAPI Schema" icon="code" href="/api/schema/">
+  Download the complete OpenAPI specification for integration with API clients and code generation tools.
+</Card>
+
+<Card title="Item Endpoints" icon="shirt" href="/api/endpoints/items">
+  Learn more about managing individual items in your collection.
+</Card>

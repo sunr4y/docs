@@ -1,0 +1,195 @@
+---
+title: Adding Items to Your Collection
+description: Learn how to add football memorabilia to your FootyCollect collection using FKAPI search or manual entry
+---
+
+FootyCollect offers two powerful ways to add items to your collection: searching the Football Kit Archive database via FKAPI, or entering details manually. Both methods ensure your collection is accurately catalogued.
+
+## Adding Items via FKAPI Search
+
+The FKAPI (Football Kit Archive API) integration allows you to search and add items with pre-filled data including colors, designs, competitions, and logos.
+
+<Steps>
+  <Step title="Navigate to Add Item">
+    Click the "Add Item" button from your collection dashboard. Select "Jersey" as the item type to access FKAPI search.
+  </Step>
+
+  <Step title="Search for Your Kit">
+    In the "Search Kit" field, start typing:
+    - Club name (e.g., "Real Betis")
+    - Season (e.g., "2020-21")
+    - Kit type (e.g., "Home")
+
+    The search updates automatically as you type (debounced at 500ms). Results appear with thumbnail images from the Football Kit Archive.
+  </Step>
+
+  <Step title="Select Your Kit">
+    Click on the kit that matches your item. FootyCollect automatically fills in:
+    - **Brand** - Manufacturer name
+    - **Club** - Team name and details
+    - **Season** - Year (e.g., 2020-21)
+    - **Competitions** - Associated competitions
+    - **Colors** - Main and secondary colors
+    - **Design** - Pattern type (stripes, plain, graphic, etc.)
+    - **Country** - Country code
+    - **Images** - Kit photos from the archive
+
+    A hidden `kit_id` field stores the FKAPI reference.
+  </Step>
+
+  <Step title="Add Item-Specific Details">
+    Fill in your specific item details:
+
+    **Size** (required)
+    - Select from available sizes (XS, S, M, L, XL, XXL, etc.)
+
+    **Condition** (required)
+    - Numeric rating: 1-10 (default: 10)
+    - Detailed condition: BNWT, BNWOT, Excellent, Very Good, Good, Fair, Poor
+
+    **Jersey Details**
+    - **Player Name** - If it has a nameset
+    - **Number** - Player number (0-99)
+    - **Has Nameset** - Toggle if player name/number is printed
+    - **Is Signed** - Toggle if autographed
+    - **Fan Version** - Toggle (checked by default)
+    - **Short Sleeve** - Toggle (checked by default)
+
+    **Optional Fields**
+    - **Name** - Custom name (auto-generated if left blank)
+    - **Description** - Additional notes about the item
+    - **Is Replica** - Toggle if it's a replica
+  </Step>
+
+  <Step title="Upload Photos">
+    Add your own photos of the item:
+    - Click the photo upload area or drag and drop images
+    - You can upload up to 10 photos per item
+    - The first photo becomes the main collection image
+    - Photos are automatically optimized to AVIF format for faster loading
+    - External images from FKAPI are downloaded and processed automatically
+
+    <Note>
+      Photos uploaded during creation are initially orphaned (stored temporarily) and associated with your item when you save. They're automatically cleaned up if not used.
+    </Note>
+  </Step>
+
+  <Step title="Review and Save">
+    Double-check all details and click "Add to Collection". Your item is saved and:
+    - Photos are processed and optimized in the background
+    - Club and brand logos are downloaded automatically
+    - The item name is auto-generated following the pattern:
+      
+      `[Club] [Type] [Season] - [Size] - [Player#Number] - [Version] [Long Sleeve] - [Signed]`
+      
+      Example: "Real Betis Home 2020-21 - XS - Joaquin#17 - Player Version - Signed"
+  </Step>
+</Steps>
+
+<Tip>
+  For best FKAPI search results, search by club name first. The archive contains thousands of kits organized by club, season, and competition.
+</Tip>
+
+## Adding Items Manually
+
+If your item isn't in the Football Kit Archive or you prefer manual entry, you can enter all details yourself.
+
+<Steps>
+  <Step title="Select Item Type">
+    Choose from:
+    - **Jersey** - Match shirts
+    - **Shorts** - Match shorts
+    - **Outerwear** - Jackets, hoodies, windbreakers, crewnecks
+    - **Tracksuit** - Training tracksuits
+    - **Pants** - Training pants
+    - **Other** - Pins, hats, caps, socks, etc.
+  </Step>
+
+  <Step title="Enter Core Information">
+    **Required Fields**
+    - **Name** - Descriptive name for your item
+    - **Brand** - Manufacturer (searchable dropdown)
+    - **Club** - Team (searchable dropdown)
+    - **Season** - Year or range (e.g., "2023-24")
+    - **Size** - Item size (for applicable types)
+
+    **Colors**
+    - **Main Color** - Primary color (dropdown with standard colors)
+    - **Secondary Colors** - Additional colors (multi-select)
+    
+    Colors not in the dropdown are automatically created when you enter them.
+  </Step>
+
+  <Step title="Add Details">
+    **Item Condition**
+    - Numeric condition: 1-10 scale
+    - Detailed condition dropdown for specific states
+
+    **Additional Information**
+    - **Competitions** - Associated leagues/tournaments (comma-separated IDs)
+    - **Design** - Pattern type: Plain, Stripes, Graphic, Hoops, Sash, etc.
+    - **Country** - Country code (searchable with flags)
+    - **Description** - Free-form notes and details
+    - **Is Replica** - Checkbox for replica items
+  </Step>
+
+  <Step title="Upload Photos">
+    Add photos of your item:
+    - Click to browse or drag and drop
+    - Upload up to 10 photos
+    - First photo is the primary image
+    - Photos are automatically converted to AVIF format
+  </Step>
+
+  <Step title="Save Your Item">
+    Click "Save" to add the item to your collection. The item is initially saved as a draft until photo processing completes.
+  </Step>
+</Steps>
+
+<Warning>
+  All required fields must be filled before saving. If using FKAPI data, the brand, club, season, and competitions fields are auto-populated and validation is relaxed.
+</Warning>
+
+## Understanding Item Types
+
+FootyCollect uses Multi-Table Inheritance (MTI) for different item types:
+
+| Item Type | Specific Fields | Use Case |
+|-----------|----------------|----------|
+| **Jersey** | Size, Kit, Player Name, Number, Fan/Player Version, Signed, Short/Long Sleeve | Match and training shirts |
+| **Shorts** | Size, Number, Fan Version | Match and training shorts |
+| **Outerwear** | Type (Hoodie/Jacket/Windbreaker/Crewneck), Size | Training and casual wear |
+| **Tracksuit** | Size | Full training suits |
+| **Pants** | Size | Training pants |
+| **Other** | Type (Pin/Hat/Cap/Socks/Other) | Accessories and memorabilia |
+
+All item types share common fields: brand, club, season, condition, colors, description, and photos.
+
+## Tips for Accurate Cataloguing
+
+<Tip>
+  **Use FKAPI when possible** - Pre-filled data ensures accuracy and saves time. The archive contains detailed information about kits, including exact colors and competition badges.
+</Tip>
+
+<Tip>
+  **Be specific with conditions** - Use the detailed condition field (BNWT, Excellent, etc.) in addition to the numeric rating for better tracking.
+</Tip>
+
+<Tip>
+  **Add player names carefully** - If your jersey has a nameset, fill in both the player name and number fields, then toggle "Has Nameset" on.
+</Tip>
+
+<Tip>
+  **Photo quality matters** - Upload clear, well-lit photos. The first photo is your collection's main image. FootyCollect automatically optimizes them for web display.
+</Tip>
+
+<Note>
+  Items are saved as drafts initially when photos are being processed. Once all photos have been converted to AVIF format and optimized, the draft flag is automatically removed.
+</Note>
+
+## Next Steps
+
+After adding items:
+- [Manage your photos](/guide/managing-photos) - Reorder, caption, and optimize
+- [Search your collection](/guide/searching-collections) - Find items quickly
+- [Configure privacy](/guide/privacy-settings) - Control who sees your collection

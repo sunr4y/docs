@@ -1,0 +1,271 @@
+---
+title: Quickstart
+description: Get FootyCollect running and create your first collection item
+---
+
+This guide will walk you through installing FootyCollect and creating your first item in your collection.
+
+## Prerequisites
+
+Before you begin, ensure you have the following installed:
+
+- **Python 3.11+** (required)
+- **PostgreSQL 14+** (required)
+- **Redis 6+** (required)
+- **FKAPI** (optional - required for automatic kit addition from Football Kit Archive)
+
+<Note>
+  FKAPI is optional but highly recommended. Without it, you can still use FootyCollect for manual entry and photo management. See [FKAPI documentation](https://github.com/sunr4y/fkapi) for installation instructions.
+</Note>
+
+## Installation
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/sunr4y/FootyCollect.git
+    cd FootyCollect/footycollect
+    ```
+  </Step>
+
+  <Step title="Create a virtual environment">
+    ```bash
+    python -m venv venv
+    source venv/bin/activate  # On Windows: venv\Scripts\activate
+    ```
+  </Step>
+
+  <Step title="Install dependencies">
+    ```bash
+    pip install -r requirements/local.txt
+    ```
+
+    This installs all required packages including:
+    - Django 5.0.8 and Django REST Framework
+    - PostgreSQL adapter (psycopg)
+    - Redis and Celery for background tasks
+    - Image processing libraries (Pillow, django-imagekit)
+    - And many more dependencies listed in requirements/base.txt:1-51
+  </Step>
+
+  <Step title="Set up environment variables">
+    Copy the environment template and edit it with your configuration:
+
+    ```bash
+    # For Docker setup
+    cp .envs/.local/.django.example .envs/.local/.django
+    cp .envs/.local/.postgres.example .envs/.local/.postgres
+
+    # For non-Docker setup
+    cp deploy/env.example .env
+    ```
+
+    Edit the file and set at minimum:
+    - `DJANGO_SECRET_KEY` - Generate with: `python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'`
+    - `DATABASE_URL` - Your PostgreSQL connection string
+    - `REDIS_URL` - Your Redis connection string (typically `redis://localhost:6379/0`)
+  </Step>
+
+  <Step title="Run database migrations">
+    ```bash
+    python manage.py migrate
+    ```
+
+    This creates all necessary database tables including:
+    - User accounts
+    - Collection items (BaseItem, Jersey, Shorts, etc.)
+    - Photos and media
+    - Clubs, seasons, and competitions
+  </Step>
+
+  <Step title="Create a superuser account">
+    ```bash
+    python manage.py createsuperuser
+    ```
+
+    Follow the prompts to create your admin account. You'll use this to access the Django admin interface and your collection.
+  </Step>
+
+  <Step title="Collect static files">
+    ```bash
+    python manage.py collectstatic --noinput
+    ```
+
+    This gathers all static files (CSS, JavaScript, images) into a single directory for serving.
+  </Step>
+
+  <Step title="Start the development server">
+    ```bash
+    python manage.py runserver
+    ```
+
+    The application will be available at `http://127.0.0.1:8000`
+  </Step>
+</Steps>
+
+<Note>
+  For a complete development environment with all services (PostgreSQL, Redis, Celery), use Docker:
+  ```bash
+  docker compose -f docker-compose.local.yml up
+  ```
+</Note>
+
+## Create your first collection item
+
+Now that FootyCollect is running, let's add your first item to your collection.
+
+<Steps>
+  <Step title="Log in to your account">
+    Navigate to `http://127.0.0.1:8000` and log in with the superuser credentials you created.
+  </Step>
+
+  <Step title="Navigate to 'Add Item'">
+    Click the "Add Item" button in the navigation menu or go to `/collection/create/`.
+  </Step>
+
+  <Step title="Select item type">
+    Choose the type of item you want to add:
+    - **Jersey** - Football shirts with specific fields for size, player name, number, etc.
+    - **Shorts** - Match shorts
+    - **Outerwear** - Jackets, hoodies, windbreakers
+    - **Tracksuit** - Training tracksuits
+    - **Pants** - Training pants
+    - **Other** - Pins, hats, caps, socks, and other memorabilia
+
+    For this example, we'll add a jersey.
+  </Step>
+
+  <Step title="Fill in item details">
+    The form will present fields specific to jerseys:
+
+    **Required fields:**
+    - **Brand** - Select from existing brands or add a new one (e.g., Adidas, Nike, Puma)
+    - **Size** - Select the jersey size (XS, S, M, L, XL, etc.)
+
+    **Optional but recommended:**
+    - **Club** - The football club (e.g., Real Madrid, Barcelona)
+    - **Season** - The season year (e.g., 2023-24)
+    - **Kit Type** - Home, Away, Third, Goalkeeper, etc.
+    - **Player Name** - If the jersey has a nameset
+    - **Number** - Player number
+    - **Condition** - From 1-10 or select detailed condition (BNWT, Excellent, etc.)
+    - **Main Color** - Primary color of the jersey
+    - **Design** - Plain, Stripes, Hoops, etc.
+
+    <Note>
+      If you have FKAPI running, you can search for kits directly from the Football Kit Archive and auto-fill these fields.
+    </Note>
+
+    Example jersey name generated automatically:
+    ```
+    Real Madrid Home 2023-24 - L - Benzema#9 - Player Version
+    ```
+  </Step>
+
+  <Step title="Upload photos">
+    Add photos of your item:
+    - Click "Choose Files" to select up to 10 photos
+    - The first photo will be your main display image
+    - Photos are automatically optimized and converted to AVIF format
+    - You can reorder photos after upload
+
+    Supported formats: JPEG, PNG, WebP
+  </Step>
+
+  <Step title="Set privacy and tags">
+    Configure visibility and organization:
+    - **Is Private** - Check to keep this item visible only to you
+    - **Is Draft** - Save as draft to continue editing later
+    - **Tags** - Add custom tags for organization (e.g., "signed", "match-worn", "vintage")
+  </Step>
+
+  <Step title="Save your item">
+    Click "Save" to add the item to your collection. You'll be redirected to the item detail page where you can:
+    - View all photos in a gallery
+    - See all item details
+    - Edit or delete the item
+    - Share with others (if public)
+  </Step>
+</Steps>
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Explore the API" icon="code" href="/api/introduction">
+    Use the RESTful API to programmatically manage your collection
+  </Card>
+  <Card title="Set up background tasks" icon="clock" href="/development/celery-tasks">
+    Configure Celery for photo processing and scheduled tasks
+  </Card>
+  <Card title="Deploy to production" icon="server" href="/deployment/overview">
+    Learn about production deployment options
+  </Card>
+  <Card title="Try the demo" icon="globe" href="/demo">
+    Experiment with the live demo
+  </Card>
+  <Card title="Set up background tasks" icon="clock" href="/background-tasks">
+    Configure Celery for photo processing and scheduled tasks
+  </Card>
+  <Card title="Deploy to production" icon="server" href="/deployment">
+    Deploy FootyCollect to a VPS or cloud platform
+  </Card>
+  <Card title="Try the demo" icon="globe" href="/demo">
+    Explore a live demo with sample data
+  </Card>
+</CardGroup>
+
+## Using Docker for development
+
+For a complete development environment with all services pre-configured:
+
+```bash
+docker compose -f docker-compose.local.yml up
+```
+
+This starts:
+- Django application on port 8000
+- PostgreSQL database
+- Redis cache
+- Celery worker for background tasks
+- Celery beat for scheduled tasks
+- Mailpit for email testing (port 8025)
+
+<Warning>
+  The first time you run Docker Compose, you'll need to create a superuser:
+  ```bash
+  docker compose -f docker-compose.local.yml run --rm django python manage.py createsuperuser
+  ```
+</Warning>
+
+## Common issues
+
+### Database connection errors
+
+If you see database connection errors, verify:
+- PostgreSQL is running: `sudo systemctl status postgresql`
+- Database exists: `psql -U postgres -c "\l"` 
+- DATABASE_URL is correct in your environment file
+
+### Redis connection errors
+
+If you see Redis connection errors:
+- Check Redis is running: `sudo systemctl status redis`
+- Verify REDIS_URL is correct: `redis://localhost:6379/0`
+
+### Photo upload issues
+
+If photo uploads fail:
+- Ensure the media directory is writable
+- Check Pillow is installed: `pip show Pillow`
+- Verify pillow-avif-plugin is installed for AVIF support
+
+### Migration errors
+
+If migrations fail:
+```bash
+# Reset migrations (development only - destroys data)
+python manage.py migrate --fake-initial
+
+# Or start fresh
+python manage.py migrate --run-syncdb
+```

@@ -1,0 +1,415 @@
+---
+title: Rate Limiting
+description: Understanding API rate limits and throttling policies
+---
+
+## Overview
+
+FootyCollect implements rate limiting to prevent abuse and ensure fair usage of API resources. Rate limiting is enforced at two levels:
+
+1. **DRF Throttling** - For internal API endpoints (`/api/`)
+2. **django-ratelimit** - For external API proxy endpoints (`/fkapi/`)
+
+<Note>
+Rate limits apply per IP address for anonymous users and per user account for authenticated users.
+</Note>
+
+## DRF API Rate Limits (`/api/`)
+
+Internal API endpoints use Django REST Framework's throttling system with configurable rates.
+
+### Default Throttle Rates
+
+| User Type | Default Limit | Configurable Via |
+|-----------|---------------|------------------|
+| **Authenticated** | 100 requests/hour | `DJANGO_DRF_USER_THROTTLE_RATE` |
+| **Anonymous** | 20 requests/hour | `DJANGO_DRF_ANON_THROTTLE_RATE` |
+
+### Throttle Classes
+
+The API uses two throttle classes:
+
+```python
+# From config/settings/base.py
+REST_FRAMEWORK = {
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.UserRateThrottle",
+        "rest_framework.throttling.AnonRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "user": "100/hour",  # Authenticated users
+        "anon": "20/hour",   # Anonymous users
+    },
+}
+```
+
+<Warning>
+Authenticated users have 5x higher rate limits than anonymous users. Register and authenticate to increase your quota.
+</Warning>
+
+### Customizing Throttle Rates
+
+You can customize throttle rates using environment variables:
+
+```bash
+# .env file
+DJANGO_DRF_USER_THROTTLE_RATE=200/hour
+DJANGO_DRF_ANON_THROTTLE_RATE=50/hour
+```
+
+## FKAPI Rate Limits (`/fkapi/`)
+
+External API proxy endpoints use **django-ratelimit** for IP-based rate limiting.
+
+### Rate Limit Configuration
+
+| Endpoint Pattern | Rate Limit | Scope |
+|------------------|------------|-------|
+| All `/fkapi/` endpoints | **100 requests/hour** | Per IP address |
+
+### Protected Endpoints
+
+The following endpoints are rate-limited:
+
+- `GET /fkapi/clubs/search/` - Search clubs
+- `GET /fkapi/clubs/{club_id}/seasons/` - Get club seasons
+- `GET /fkapi/clubs/{club_id}/seasons/{season_id}/kits/` - Get kits
+- `GET /fkapi/kits/search/` - Search kits
+- `GET /fkapi/kits/{kit_id}/` - Get kit details
+- `GET /fkapi/brands/search/` - Search brands
+- `GET /fkapi/competitions/search/` - Search competitions
+- `GET /fkapi/seasons/search/` - Search seasons
+- `GET /fkapi/filters/` - Get filter options
+
+### Implementation
+
+Rate limiting is implemented using the `@ratelimit` decorator:
+
+```python
+# From footycollect/api/views.py
+from django_ratelimit.decorators import ratelimit
+
+FKAPI_RATE_LIMIT = "100/h"
+
+@ratelimit(key="ip", rate="100/h", method="GET")
+@require_GET
+def search_clubs(request):
+    if getattr(request, "limited", False):
+        return _rate_limited_response(request)
+    # ... endpoint logic
+```
+
+<Note>
+FKAPI rate limits are **IP-based** and apply regardless of authentication status. All users from the same IP share the same quota.
+</Note>
+
+## Rate Limit Headers
+
+When rate limits are exceeded, the API returns custom headers to help you track your usage.
+
+### FKAPI Response Headers
+
+| Header | Description | Example |
+|--------|-------------|----------|
+| `X-RateLimit-Limit` | Maximum requests allowed | `100/h` |
+| `X-RateLimit-Remaining` | Requests remaining in window | `0` |
+| `Retry-After` | Seconds until rate limit resets | `3600` |
+
+### Example Rate Limit Response
+
+<CodeGroup>
+```bash Request
+curl -X GET https://your-domain.com/fkapi/clubs/search/?keyword=barcelona \
+  -H "Authorization: Token 9944b09199c62bcf9418ad846dd0e4bbdfc6ee4b" \
+  -i
+```
+
+```http Response (Rate Limited)
+HTTP/1.1 429 Too Many Requests
+Content-Type: application/json
+X-RateLimit-Limit: 100/h
+X-RateLimit-Remaining: 0
+Retry-After: 3600
+
+{
+  "error": "Rate limit exceeded"
+}
+```
+</CodeGroup>
+
+## HTTP Status Codes
+
+### 429 Too Many Requests
+
+When you exceed the rate limit, you'll receive a `429 Too Many Requests` response.
+
+**DRF API Response:**
+
+```json
+{
+  "detail": "Request was throttled. Expected available in 3600 seconds."
+}
+```
+
+**FKAPI Response:**
+
+```json
+{
+  "error": "Rate limit exceeded"
+}
+```
+
+## Handling Rate Limits
+
+### Exponential Backoff
+
+Implement exponential backoff to handle rate limit errors gracefully:
+
+<CodeGroup>
+```python Python
+import time
+import requests
+from typing import Optional
+
+def make_request_with_retry(
+    url: str,
+    headers: dict,
+    max_retries: int = 3
+) -> Optional[dict]:
+    """Make API request with exponential backoff."""
+    for attempt in range(max_retries):
+        response = requests.get(url, headers=headers)
+        
+        if response.status_code == 200:
+            return response.json()
+        
+        if response.status_code == 429:
+            retry_after = int(response.headers.get('Retry-After', 60))
+            wait_time = min(retry_after, 2 ** attempt * 60)  # Cap at retry_after
+            print(f"Rate limited. Waiting {wait_time}s before retry...")
+            time.sleep(wait_time)
+            continue
+        
+        # Other errors
+        response.raise_for_status()
+    
+    return None
+
+# Usage
+url = "https://your-domain.com/fkapi/clubs/search/?keyword=barcelona"
+headers = {"Authorization": "Token your-token"}
+data = make_request_with_retry(url, headers)
+```
+
+```javascript JavaScript
+async function makeRequestWithRetry(url, headers, maxRetries = 3) {
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    const response = await fetch(url, { headers });
+    
+    if (response.ok) {
+      return await response.json();
+    }
+    
+    if (response.status === 429) {
+      const retryAfter = parseInt(response.headers.get('Retry-After') || '60');
+      const waitTime = Math.min(retryAfter, Math.pow(2, attempt) * 60);
+      console.log(`Rate limited. Waiting ${waitTime}s before retry...`);
+      await new Promise(resolve => setTimeout(resolve, waitTime * 1000));
+      continue;
+    }
+    
+    throw new Error(`Request failed: ${response.status}`);
+  }
+  
+  return null;
+}
+
+// Usage
+const url = 'https://your-domain.com/fkapi/clubs/search/?keyword=barcelona';
+const headers = { 'Authorization': 'Token your-token' };
+const data = await makeRequestWithRetry(url, headers);
+```
+</CodeGroup>
+
+### Rate Limit Monitoring
+
+Track your rate limit usage to avoid hitting limits:
+
+```python
+import requests
+from datetime import datetime, timedelta
+
+class RateLimitTracker:
+    def __init__(self, limit: int, window_seconds: int):
+        self.limit = limit
+        self.window_seconds = window_seconds
+        self.requests = []
+    
+    def can_make_request(self) -> bool:
+        """Check if we can make a request without hitting rate limit."""
+        now = datetime.now()
+        window_start = now - timedelta(seconds=self.window_seconds)
+        
+        # Remove old requests outside the window
+        self.requests = [req_time for req_time in self.requests if req_time > window_start]
+        
+        return len(self.requests) < self.limit
+    
+    def record_request(self):
+        """Record a new request."""
+        self.requests.append(datetime.now())
+    
+    def requests_remaining(self) -> int:
+        """Get number of requests remaining in current window."""
+        now = datetime.now()
+        window_start = now - timedelta(seconds=self.window_seconds)
+        self.requests = [req_time for req_time in self.requests if req_time > window_start]
+        return self.limit - len(self.requests)
+
+# Usage for FKAPI (100/hour)
+tracker = RateLimitTracker(limit=100, window_seconds=3600)
+
+if tracker.can_make_request():
+    response = requests.get(url, headers=headers)
+    tracker.record_request()
+    print(f"Requests remaining: {tracker.requests_remaining()}")
+else:
+    print("Rate limit reached. Wait before making more requests.")
+```
+
+## Best Practices
+
+<AccordionGroup>
+  <Accordion title="Authenticate to get higher limits">
+    Anonymous users are limited to 20 requests/hour on DRF endpoints. Authenticate to get 100 requests/hour.
+    
+    ```bash
+    # Without authentication: 20 req/hour
+    curl -X GET https://your-domain.com/api/users/
+    
+    # With authentication: 100 req/hour
+    curl -X GET https://your-domain.com/api/users/ \
+      -H "Authorization: Token your-token"
+    ```
+  </Accordion>
+
+  <Accordion title="Implement request caching">
+    Cache API responses to reduce the number of requests:
+    
+    ```python
+    import requests
+    from functools import lru_cache
+    from datetime import datetime, timedelta
+    
+    @lru_cache(maxsize=128)
+    def get_club_data(club_id: str, cache_time: str):
+        """Cached club data (cache_time changes hourly)."""
+        url = f"https://your-domain.com/fkapi/clubs/{club_id}/"
+        return requests.get(url, headers=headers).json()
+    
+    # Cache key changes every hour
+    cache_key = datetime.now().strftime("%Y-%m-%d-%H")
+    club = get_club_data("123", cache_key)
+    ```
+  </Accordion>
+
+  <Accordion title="Batch requests when possible">
+    Instead of making multiple individual requests, batch operations where supported:
+    
+    ```python
+    # Instead of multiple requests
+    for club_id in club_ids:
+        get_club(club_id)  # 100 requests for 100 clubs
+    
+    # Use search with broader queries when possible
+    results = search_clubs(keyword="premier league")  # 1 request
+    ```
+  </Accordion>
+
+  <Accordion title="Handle 429 errors gracefully">
+    Always implement retry logic with exponential backoff:
+    
+    ```python
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 429:
+            retry_after = int(e.response.headers.get('Retry-After', 3600))
+            print(f"Rate limited. Retry after {retry_after} seconds")
+        else:
+            raise
+    ```
+  </Accordion>
+
+  <Accordion title="Monitor your usage">
+    Track API usage to avoid unexpected rate limiting:
+    
+    - Log all API requests with timestamps
+    - Monitor rate limit headers in responses
+    - Set up alerts before hitting limits
+    - Review usage patterns to optimize requests
+  </Accordion>
+</AccordionGroup>
+
+## Rate Limit Configuration
+
+### Environment Variables
+
+Configure rate limits using environment variables in production:
+
+```bash
+# DRF API throttle rates
+DJANGO_DRF_USER_THROTTLE_RATE=100/hour
+DJANGO_DRF_ANON_THROTTLE_RATE=20/hour
+```
+
+### Custom Throttle Rates
+
+For custom deployments, you can modify throttle rates in `config/settings/base.py`:
+
+```python
+REST_FRAMEWORK = {
+    "DEFAULT_THROTTLE_RATES": {
+        "user": env.str("DJANGO_DRF_USER_THROTTLE_RATE", default="100/hour"),
+        "anon": env.str("DJANGO_DRF_ANON_THROTTLE_RATE", default="20/hour"),
+    },
+}
+```
+
+## Exception Handling
+
+FootyCollect uses a custom DRF exception handler:
+
+```python
+# From config/settings/base.py
+REST_FRAMEWORK = {
+    "EXCEPTION_HANDLER": "config.exceptions.drf_exception_handler",
+}
+```
+
+This ensures consistent error responses across all API endpoints.
+
+## Requesting Higher Limits
+
+If you need higher rate limits for production use:
+
+1. Contact support via [GitHub Issues](https://github.com/sunr4y/FootyCollect/issues)
+2. Describe your use case and required limits
+3. Provide details about your application
+
+<Note>
+Higher rate limits are evaluated on a case-by-case basis for legitimate production use cases.
+</Note>
+
+## Summary
+
+| API Type | Authenticated | Anonymous | Scope | Reset Period |
+|----------|---------------|-----------|-------|-------------|
+| **DRF API** (`/api/`) | 100 req/hour | 20 req/hour | Per user/IP | 1 hour |
+| **FKAPI** (`/fkapi/`) | 100 req/hour | 100 req/hour | Per IP | 1 hour |
+
+## Next Steps
+
+- [API Introduction](/api/introduction) - Learn about available endpoints
+- [Authentication](/api/authentication) - Set up API authentication

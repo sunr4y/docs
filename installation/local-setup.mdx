@@ -1,0 +1,335 @@
+---
+title: 'Local Development Setup'
+description: 'Set up FootyCollect for local development with Python, PostgreSQL, and Redis'
+icon: 'code'
+---
+
+## Prerequisites
+
+Before setting up FootyCollect locally, ensure you have the following installed:
+
+| Requirement | Version | Notes |
+|-------------|---------|-------|
+| **Python** | 3.11+ | Required |
+| **PostgreSQL** | 14+ | Required for database |
+| **Redis** | 6+ | Required for caching and Celery |
+| **fkapi** | Latest | Optional - required for Football Kit Archive integration ([GitHub](https://github.com/sunr4y/fkapi)) |
+
+<Note>
+  FootyCollect integrates with the **Football Kit Archive** via [FKAPI](https://github.com/sunr4y/fkapi) to search and add kits by club, season, and competition. While FKAPI is optional, it's central to the intended workflow for discovering and cataloguing items.
+</Note>
+
+## Installation Steps
+
+<Steps>
+  <Step title="Clone the repository">
+    Clone the FootyCollect repository and navigate to the project directory:
+    
+    ```bash
+    git clone https://github.com/sunr4y/FootyCollect.git
+    cd FootyCollect/footycollect
+    ```
+  </Step>
+
+  <Step title="Create a virtual environment">
+    Create and activate a Python virtual environment:
+    
+    <CodeGroup>
+    ```bash Linux/macOS
+    python -m venv venv
+    source venv/bin/activate
+    ```
+    
+    ```bash Windows
+    python -m venv venv
+    venv\Scripts\activate
+    ```
+    </CodeGroup>
+  </Step>
+
+  <Step title="Install dependencies">
+    Install the required Python packages for local development:
+    
+    ```bash
+    pip install -r requirements/local.txt
+    ```
+    
+    This installs:
+    - Django 5.0.8 with REST Framework
+    - PostgreSQL adapter (psycopg)
+    - Redis client
+    - Celery for background tasks
+    - Development tools (pytest, mypy, ruff)
+    - And more (see [requirements/base.txt](https://github.com/sunr4y/FootyCollect/blob/main/requirements/base.txt))
+  </Step>
+
+  <Step title="Configure environment variables">
+    Set up your environment configuration:
+    
+    ```bash
+    cp deploy/env.example .env
+    ```
+    
+    Edit `.env` and configure at minimum:
+    - `DJANGO_SECRET_KEY` - Generate with Django utilities
+    - `DATABASE_URL` - Your PostgreSQL connection string
+    - `REDIS_URL` - Your Redis connection string
+    
+    <Warning>
+      For local development, set `DJANGO_DEBUG=True`. Never use this in production!
+    </Warning>
+    
+    See [Environment Variables](/installation/environment-variables) for a complete reference.
+  </Step>
+
+  <Step title="Run database migrations">
+    Apply database migrations to set up the schema:
+    
+    ```bash
+    python manage.py migrate
+    ```
+    
+    This creates all necessary tables for:
+    - User management
+    - Collection items (jerseys, shorts, outerwear, tracksuits)
+    - Photos and media
+    - Clubs, seasons, and competitions
+  </Step>
+
+  <Step title="Create a superuser">
+    Create an admin account to access Django admin:
+    
+    ```bash
+    python manage.py createsuperuser
+    ```
+    
+    Follow the prompts to set username, email, and password.
+  </Step>
+
+  <Step title="Collect static files">
+    Gather static files (CSS, JavaScript, images) for serving:
+    
+    ```bash
+    python manage.py collectstatic --noinput
+    ```
+  </Step>
+
+  <Step title="Start the development server">
+    Launch the Django development server:
+    
+    ```bash
+    python manage.py runserver
+    ```
+    
+    The application will be available at: **http://127.0.0.1:8000**
+    
+    Access the admin interface at: **http://127.0.0.1:8000/admin/**
+  </Step>
+</Steps>
+
+## Running Background Workers
+
+FootyCollect uses Celery for background tasks like image processing and periodic cleanup.
+
+### Start Celery Worker
+
+In a separate terminal (with your virtual environment activated):
+
+```bash
+celery -A config.celery_app worker -l info
+```
+
+### Start Celery Beat (Scheduled Tasks)
+
+For periodic tasks like orphaned photo cleanup:
+
+```bash
+celery -A config.celery_app beat
+```
+
+### Configure Periodic Tasks
+
+Set up default periodic task frequencies:
+
+```bash
+python manage.py setup_beat_schedule
+```
+
+You can adjust intervals later in Django Admin under **django_celery_beat → Periodic tasks**.
+
+<Tip>
+  For a complete development environment with all services (Django, PostgreSQL, Redis, Celery, Mailpit), consider using [Docker Setup](/installation/docker-setup) instead.
+</Tip>
+
+## Project Structure
+
+Understanding the codebase organization:
+
+```
+footycollect/
+├── config/              # Django settings and configuration
+│   ├── settings/        # Environment-specific settings
+│   │   ├── base.py     # Base settings
+│   │   ├── local.py    # Local development
+│   │   └── production.py  # Production
+│   └── checks.py        # Production validation checks
+├── footycollect/       # Main application code
+│   ├── api/             # External API client (FKAPI)
+│   ├── collection/     # Collection app (items, photos)
+│   ├── core/            # Core models (clubs, seasons)
+│   └── users/           # User management
+├── deploy/              # Production deployment files
+│   └── env.example     # Environment variable template
+├── requirements/        # Python dependencies
+│   ├── base.txt        # Base requirements
+│   ├── local.txt       # Development requirements
+│   └── production.txt  # Production requirements
+└── docs/                # Architecture documentation
+```
+
+## Code Quality Tools
+
+FootyCollect uses several tools to maintain code quality:
+
+### Formatting and Linting
+
+```bash
+# Format code with Ruff
+ruff format .
+
+# Lint code
+ruff check .
+
+# Auto-fix linting issues
+ruff check --fix .
+```
+
+### Type Checking
+
+```bash
+# Run mypy for static type analysis
+mypy footycollect
+```
+
+### Running Tests
+
+```bash
+# Run all tests with coverage
+pytest
+
+# Run specific test file
+pytest footycollect/collection/tests/test_models.py
+
+# View HTML coverage report
+open htmlcov/index.html  # macOS
+xdg-open htmlcov/index.html  # Linux
+```
+
+## Database Management
+
+### Creating Migrations
+
+After modifying models:
+
+```bash
+python manage.py makemigrations
+```
+
+### Applying Migrations
+
+```bash
+python manage.py migrate
+```
+
+### Resetting the Database
+
+<Warning>
+  This will delete all data!
+</Warning>
+
+```bash
+# Drop and recreate database (PostgreSQL)
+dropdb footycollect_db
+createdb footycollect_db
+
+# Run migrations
+python manage.py migrate
+
+# Create superuser
+python manage.py createsuperuser
+```
+
+## API Documentation
+
+When running the development server, interactive API documentation is available:
+
+- **Swagger UI**: http://127.0.0.1:8000/api/docs/ (development only)
+- **OpenAPI Schema**: http://127.0.0.1:8000/api/schema/
+
+The API uses OpenAPI 3.0 specification generated by drf-spectacular.
+
+## Email Testing
+
+For local development, Django is configured to print emails to the console by default.
+
+For a visual email testing interface, use [Docker Setup](/installation/docker-setup) which includes Mailpit at http://localhost:8025.
+
+## Troubleshooting
+
+### Database Connection Errors
+
+Ensure PostgreSQL is running:
+
+```bash
+# macOS (Homebrew)
+brew services start postgresql@14
+
+# Linux (systemd)
+sudo systemctl start postgresql
+
+# Check status
+psql --version
+```
+
+### Redis Connection Errors
+
+Ensure Redis is running:
+
+```bash
+# macOS (Homebrew)
+brew services start redis
+
+# Linux (systemd)
+sudo systemctl start redis
+
+# Check status
+redis-cli ping  # Should return PONG
+```
+
+### Module Import Errors
+
+Ensure your virtual environment is activated and dependencies are installed:
+
+```bash
+source venv/bin/activate  # Linux/macOS
+venv\Scripts\activate     # Windows
+
+pip install -r requirements/local.txt
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Docker Setup" icon="docker" href="/installation/docker-setup">
+    Use Docker Compose for a complete development environment
+  </Card>
+  <Card title="Environment Variables" icon="gear" href="/installation/environment-variables">
+    Complete reference for all configuration options
+  </Card>
+  <Card title="Development Guide" icon="code" href="/development">
+    Learn about the architecture and development workflow
+  </Card>
+  <Card title="API Reference" icon="book" href="/api-reference">
+    Explore the REST API endpoints
+  </Card>
+</CardGroup>

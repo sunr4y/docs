@@ -1,0 +1,185 @@
+---
+title: 'Photo Endpoints'
+description: 'API endpoints for managing item photos in FootyCollect'
+---
+
+## Overview
+
+The Photos API provides endpoints for uploading, managing, and retrieving photos associated with memorabilia items in your collection.
+
+**Base URL**: `/api/photos/`
+
+**Authentication**: Token authentication required for all endpoints.
+
+## Interactive API Documentation
+
+<Note>
+  Full interactive API documentation for photo endpoints is available at `/api/docs/` when running the FootyCollect server. The Swagger UI interface allows you to explore and test all endpoints with real-time responses.
+</Note>
+
+## OpenAPI Schema
+
+The complete OpenAPI schema for photo endpoints is available at:
+
+```
+GET /api/schema/
+```
+
+This provides a machine-readable specification of all photo endpoints, request/response schemas, and validation rules.
+
+## Photo Model
+
+Photos are associated with items using Django's GenericForeignKey pattern (see `footycollect/collection/models.py:52-154`):
+
+<ResponseField name="id" type="integer">
+  Unique identifier for the photo
+</ResponseField>
+
+<ResponseField name="content_type" type="integer">
+  Content type ID for the associated object
+</ResponseField>
+
+<ResponseField name="object_id" type="integer">
+  ID of the associated object (item)
+</ResponseField>
+
+<ResponseField name="image" type="file">
+  The uploaded image file
+</ResponseField>
+
+<ResponseField name="image_avif" type="file">
+  AVIF-optimized version of the image (auto-generated)
+</ResponseField>
+
+<ResponseField name="caption" type="string">
+  Optional caption for the photo
+</ResponseField>
+
+<ResponseField name="order" type="integer">
+  Display order of the photo (for sorting)
+</ResponseField>
+
+<ResponseField name="uploaded_at" type="datetime">
+  When the photo was uploaded
+</ResponseField>
+
+<ResponseField name="user" type="integer">
+  ID of the user who uploaded the photo
+</ResponseField>
+
+## Features
+
+### Automatic Image Optimization
+
+FootyCollect automatically creates AVIF versions of uploaded photos for better performance and smaller file sizes. This process is handled asynchronously using Celery tasks.
+
+### Thumbnail Generation
+
+Thumbnails (100x100px) are automatically generated for all uploaded photos using ImageKit.
+
+### Photo Ordering
+
+Photos can be reordered using the `order` field. The first photo (order=0) is typically used as the main photo for an item.
+
+## RESTful Conventions
+
+Photo endpoints follow standard RESTful conventions:
+
+- `GET /api/photos/` - List all photos
+- `POST /api/photos/` - Upload a new photo
+- `GET /api/photos/{id}/` - Retrieve a specific photo
+- `PUT /api/photos/{id}/` - Full update of a photo
+- `PATCH /api/photos/{id}/` - Partial update of a photo (e.g., caption, order)
+- `DELETE /api/photos/{id}/` - Delete a photo
+
+## Sample Upload Request
+
+<CodeGroup>
+```bash cURL
+curl -X POST "http://localhost:8000/api/photos/" \
+  -H "Authorization: Token your_auth_token_here" \
+  -F "image=@/path/to/photo.jpg" \
+  -F "content_type=21" \
+  -F "object_id=1" \
+  -F "caption=Front view" \
+  -F "order=0"
+```
+
+```python Python
+import requests
+
+url = "http://localhost:8000/api/photos/"
+headers = {
+    "Authorization": "Token your_auth_token_here"
+}
+files = {
+    "image": open("/path/to/photo.jpg", "rb")
+}
+data = {
+    "content_type": 21,
+    "object_id": 1,
+    "caption": "Front view",
+    "order": 0
+}
+
+response = requests.post(url, headers=headers, files=files, data=data)
+print(response.json())
+```
+
+```javascript JavaScript
+const formData = new FormData();
+formData.append('image', fileInput.files[0]);
+formData.append('content_type', '21');
+formData.append('object_id', '1');
+formData.append('caption', 'Front view');
+formData.append('order', '0');
+
+fetch('http://localhost:8000/api/photos/', {
+  method: 'POST',
+  headers: {
+    'Authorization': 'Token your_auth_token_here'
+  },
+  body: formData
+})
+.then(response => response.json())
+.then(data => console.log(data));
+```
+</CodeGroup>
+
+## Sample Response
+
+```json
+{
+  "id": 42,
+  "content_type": 21,
+  "object_id": 1,
+  "image": "http://localhost:8000/media/item_photos/photo_abc123.jpg",
+  "image_avif": "http://localhost:8000/media/item_photos_avif/photo_abc123.avif",
+  "caption": "Front view",
+  "order": 0,
+  "uploaded_at": "2024-01-15T14:30:00Z",
+  "user": 5
+}
+```
+
+## File Storage
+
+<Info>
+  Photos are stored in the `/media/item_photos/` directory, with AVIF versions in `/media/item_photos_avif/`. The application supports both local file storage and cloud storage (S3-compatible).
+</Info>
+
+## Cleanup
+
+<Warning>
+  When a photo is deleted, both the original image and the AVIF version are automatically removed from storage to prevent orphaned files.
+</Warning>
+
+## Learn More
+
+<Card title="OpenAPI Documentation" icon="book" href="/api/docs/">
+  Access the full interactive API documentation with request/response examples and the ability to test endpoints directly.
+</Card>
+
+<Card title="OpenAPI Schema" icon="code" href="/api/schema/">
+  Download the complete OpenAPI specification for integration with API clients and code generation tools.
+</Card>

@@ -1,0 +1,437 @@
+---
+title: Searching and Browsing Collections
+description: Find items in your FootyCollect collection using filters, search, and advanced queries
+---
+
+FootyCollect provides powerful search and filtering capabilities to help you quickly find items in your collection, whether you have 10 items or 1,000.
+
+## Browsing Your Collection
+
+Your main collection view displays all items with smart caching and pagination.
+
+### Collection List View
+
+The primary collection interface shows:
+
+<Steps>
+  <Step title="Access Your Collection">
+    Navigate to `/collection/items/` to see your complete collection. Items are displayed in a grid with:
+    - Main photo (first photo from each item)
+    - Item name (auto-generated or custom)
+    - Club and season
+    - Key details (size, condition, player name)
+  </Step>
+
+  <Step title="View Options">
+    The list view provides multiple viewing modes:
+    - **Grid view** - Visual cards with photos
+    - **List view** - Compact rows with details
+    - **Feed view** - Social media-style feed of recent additions
+
+    Items are ordered by creation date (newest first) by default.
+  </Step>
+
+  <Step title="Pagination">
+    Collections are paginated for performance:
+    - Default page size varies by view
+    - Navigate using page numbers or prev/next buttons
+    - Current page is cached to improve load times
+  </Step>
+</Steps>
+
+### Optimized Performance
+
+The collection list uses advanced optimization:
+
+```python
+Jersey.objects.filter(base_item__user=request.user)
+    .select_related(
+        'base_item',
+        'base_item__user',
+        'base_item__club',
+        'base_item__season',
+        'base_item__brand',
+        'base_item__main_color',
+        'size',
+        'kit',
+        'kit__type',
+    )
+    .prefetch_related(
+        'base_item__competitions',
+        'base_item__photos',
+        'base_item__secondary_colors',
+        'base_item__tags',
+    )
+```
+
+This query optimization:
+- Reduces database queries from hundreds to ~3-5 per page
+- Loads all related data in advance
+- Significantly improves page load times
+
+<Note>
+  Collection pages are cached for 15 minutes. If you add or edit items and don't see changes, the cache is automatically invalidated and refreshed.
+</Note>
+
+## Search Functionality
+
+Search across all your items using multiple criteria.
+
+### Basic Search
+
+<Steps>
+  <Step title="Access Search">
+    Use the search bar at the top of your collection view. The search box accepts text queries.
+  </Step>
+
+  <Step title="Enter Search Terms">
+    Type keywords to search:
+    - **Club names** - "Real Betis", "Barcelona"
+    - **Seasons** - "2020-21", "2023"
+    - **Brands** - "Adidas", "Nike", "Kappa"
+    - **Player names** - "Joaquin", "Messi"
+    - **Item names** - Any part of the auto-generated or custom name
+    - **Descriptions** - Text from item descriptions
+  </Step>
+
+  <Step title="View Results">
+    Results appear as you type (if debounced search is enabled) or when you submit the search. Matching items are displayed using the same grid/list format.
+  </Step>
+</Steps>
+
+### Search Scope
+
+Searches query across multiple fields:
+
+| Field | Searchable | Example |
+|-------|-----------|--------|
+| **Item Name** | Yes | "Real Betis Home 2020-21" |
+| **Club Name** | Yes | "Real Betis" |
+| **Brand Name** | Yes | "Kappa" |
+| **Season** | Yes | "2020-21" |
+| **Player Name** | Yes | "Joaquin" |
+| **Description** | Yes | "signed by player" |
+| **Kit Type** | Yes | "Home", "Away", "Third" |
+| **Competitions** | Partial | Competition names |
+| **Tags** | Yes | Custom tags |
+
+<Tip>
+  Search is case-insensitive. "real betis", "Real Betis", and "REAL BETIS" all return the same results.
+</Tip>
+
+## Filtering Collections
+
+Narrow down your collection using filters based on item attributes.
+
+### Available Filters
+
+<Steps>
+  <Step title="Item Type Filter">
+    Filter by item type:
+    - Jersey
+    - Shorts
+    - Outerwear
+    - Tracksuit
+    - Pants
+    - Other
+
+    Shows only items of the selected type. Useful for viewing only jerseys or only accessories.
+  </Step>
+
+  <Step title="Club Filter">
+    Filter by club/team:
+    - Shows a list of all clubs in your collection
+    - Select one or multiple clubs
+    - Displays only items from selected clubs
+
+    Perfect for viewing your collection for a specific team.
+  </Step>
+
+  <Step title="Season Filter">
+    Filter by season:
+    - Lists all seasons represented in your collection
+    - Select single or multiple seasons
+    - Useful for tracking items from specific eras
+
+    Example: View all items from "2020-21" season across all clubs.
+  </Step>
+
+  <Step title="Brand Filter">
+    Filter by manufacturer:
+    - Adidas, Nike, Puma, Kappa, Umbro, etc.
+    - Shows all brands in your collection
+    - View items by a specific manufacturer
+
+    Great for collectors focusing on specific brands.
+  </Step>
+
+  <Step title="Color Filter">
+    Filter by color:
+    - **Main Color** - Primary jersey color
+    - **Secondary Colors** - Additional colors
+
+    Available colors include: White, Red, Blue, Black, Yellow, Green, Sky Blue, Navy, Orange, Gray, Claret, Purple, Pink, Brown, Gold, Silver, Off-White
+
+    Displays items matching the selected color(s).
+  </Step>
+
+  <Step title="Condition Filter">
+    Filter by condition:
+    - Numeric range (1-10)
+    - Detailed condition: BNWT, BNWOT, Excellent, Very Good, Good, Fair, Poor
+
+    Find items in specific condition ranges.
+  </Step>
+
+  <Step title="Special Attributes">
+    Filter by specific features:
+    - **Is Replica** - Show only replica items
+    - **Is Signed** - Autographed items only
+    - **Has Nameset** - Items with player names/numbers
+    - **Fan Version** - Fan version items
+    - **Player Version** - Player issue items
+    - **Is Private** - Private/draft items
+  </Step>
+</Steps>
+
+### Combining Filters
+
+Filters can be combined for precise searches:
+
+**Example 1:** Real Betis + 2020-21 + Signed
+- Shows all signed Real Betis items from 2020-21 season
+
+**Example 2:** Jersey + Adidas + Red + BNWT
+- Shows all brand new with tags red Adidas jerseys
+
+**Example 3:** Player Version + Has Nameset + Excellent
+- Shows player version items with namesets in excellent condition
+
+<Tip>
+  Filters are applied using AND logic. Selecting multiple filters narrows results. For example, "Club: Real Betis" AND "Season: 2020-21" shows only Real Betis items from that specific season.
+</Tip>
+
+## Database Indexes for Search Performance
+
+FootyCollect uses optimized database indexes for fast searches:
+
+```python
+class Meta:
+    indexes = [
+        models.Index(fields=['user']),
+        models.Index(fields=['item_type']),
+        models.Index(fields=['club']),
+        models.Index(fields=['brand']),
+        models.Index(fields=['created_at']),
+        # Composite indexes for common query patterns
+        models.Index(fields=['user', 'item_type']),
+        models.Index(fields=['user', 'is_private', 'is_draft']),
+        models.Index(fields=['user', 'created_at']),
+        models.Index(fields=['club', 'season']),
+    ]
+```
+
+These indexes enable:
+- Fast filtering by user, club, brand, season
+- Quick item type filtering
+- Efficient sorting by creation date
+- Optimized privacy/draft queries
+
+## Advanced Search Tips
+
+### Using Item Type Queries
+
+Query specific item types directly:
+
+```python
+# Jerseys only
+Jersey.objects.filter(base_item__user=request.user)
+
+# With specific kit type
+Jersey.objects.filter(
+    base_item__user=request.user,
+    kit__type__name='Home'
+)
+```
+
+### Searching by Competition
+
+Find items associated with specific competitions:
+
+```python
+BaseItem.objects.filter(
+    user=request.user,
+    competitions__name__icontains='Champions League'
+)
+```
+
+Competitions use many-to-many relationships, allowing items to be associated with multiple tournaments.
+
+### Finding Items by Country
+
+Search by country code:
+
+```python
+BaseItem.objects.filter(
+    user=request.user,
+    country='ES'  # Spain
+)
+```
+
+Countries are stored using ISO country codes via `django-countries`.
+
+### Color-Based Searches
+
+Find items by color combinations:
+
+```python
+# Main color is Red
+BaseItem.objects.filter(
+    user=request.user,
+    main_color__name='RED'
+)
+
+# Secondary colors include Blue
+BaseItem.objects.filter(
+    user=request.user,
+    secondary_colors__name='BLUE'
+)
+```
+
+Colors are stored as Color objects with names and hex values.
+
+### Design Pattern Searches
+
+Filter by jersey design:
+
+```python
+BaseItem.objects.filter(
+    user=request.user,
+    design='STRIPES'
+)
+```
+
+Available designs: Plain, Stripes, Graphic, Chest Band, Contrasting Sleeves, Pinstripes, Hoops, Single Stripe, Half-and-Half, Sash, Chevron, Checkers, Gradient, Diagonal, Cross, Quarters
+
+<Note>
+  Design patterns are stored as choices in `BaseItem.DESIGN_CHOICES`. Custom designs can be added by extending this list.
+</Note>
+
+## Feed View
+
+The feed view provides a social media-style chronological display.
+
+### Accessing the Feed
+
+Navigate to `/collection/feed/` to see:
+- Recent additions to collections (yours and public)
+- Items sorted by creation date
+- Full item details including photos, descriptions, and metadata
+- User profile information for each item
+
+### Feed Privacy
+
+The feed respects privacy settings:
+- **Your items** - Always visible to you
+- **Public items** - Visible to everyone
+- **Private items** - Only visible to the owner
+
+See [Privacy Settings](/guide/privacy-settings) for configuration options.
+
+## Custom Managers and Querysets
+
+FootyCollect provides custom managers for common queries:
+
+### BaseItem Manager
+
+```python
+# Public items only
+BaseItem.objects.public()
+
+# Private items only
+BaseItem.objects.private()
+
+# Draft items only
+BaseItem.objects.drafts()
+```
+
+### MTI Model Manager
+
+For item types (Jersey, Shorts, etc.):
+
+```python
+# Public jerseys
+Jersey.objects.public()
+
+# Private jerseys
+Jersey.objects.private()
+
+# Draft jerseys
+Jersey.objects.drafts()
+```
+
+These managers filter based on `base_item` privacy and draft flags.
+
+## Collection Statistics
+
+View statistics about your collection:
+
+- **Total items** - Count of all items
+- **By type** - Breakdown of jerseys, shorts, etc.
+- **By club** - Items per club/team
+- **By brand** - Items per manufacturer
+- **By season** - Items per season
+- **By condition** - Distribution of conditions
+
+<Tip>
+  Use filters to drill down into specific segments of your collection. For example, filter by club to see how many items you have for each team, or filter by season to track your collection's historical range.
+</Tip>
+
+## Caching Strategy
+
+Collection lists use intelligent caching:
+
+```python
+# Cache key per user and page
+cache_key = f"item_list_{user.pk}_page_{page}"
+
+# Cache timeout: 15 minutes
+ITEM_LIST_CACHE_TIMEOUT = 60 * 15
+
+# Fragment versioning
+fragment_version = cache.get(f"item_list_fragment_v_{user.pk}") or 0
+```
+
+### Cache Invalidation
+
+The cache is invalidated when:
+- Items are created, updated, or deleted
+- Photos are added, removed, or reordered
+- Privacy settings change
+- Draft status changes
+
+Invalidation increments the fragment version, forcing a cache refresh.
+
+<Note>
+  If you have messages (notifications), caching is skipped to ensure messages display correctly. This prevents stale cache from hiding important notifications.
+</Note>
+
+## Search Performance Optimization
+
+For large collections, FootyCollect implements several optimizations:
+
+1. **Database Indexes** - Composite indexes on common query patterns
+2. **Query Optimization** - select_related and prefetch_related to minimize queries
+3. **Caching** - Page-level caching with intelligent invalidation
+4. **Pagination** - Limit results per page to reduce memory usage
+5. **Lazy Loading** - Load photos and related data only when needed
+
+<Tip>
+  For the best search performance, use specific filters rather than broad searches. For example, filtering by club then season is faster than searching all items for a club name.
+</Tip>
+
+## Next Steps
+
+- [Adding items](/guide/adding-items) - Add more items to search
+- [Privacy settings](/guide/privacy-settings) - Control search visibility
+- [Managing photos](/guide/managing-photos) - Organize item photos

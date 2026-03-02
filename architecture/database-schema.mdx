@@ -1,0 +1,531 @@
+---
+title: Database Schema
+description: Database models, relationships, and schema design for FootyCollect
+---
+
+FootyCollect uses PostgreSQL as its primary database. The schema is designed to support multiple item types while maintaining data integrity, query performance, and extensibility.
+
+## Core Models
+
+### BaseItem
+
+The foundation model for all collection items, containing common fields shared across all item types.
+
+**Table**: `collection_baseitem`
+
+**Key Fields**:
+
+```python
+class BaseItem(models.Model):
+    # Core identification
+    item_type = models.CharField(max_length=20, choices=ITEM_TYPE_CHOICES)
+    name = models.CharField(max_length=200)
+    
+    # Ownership and privacy
+    user = models.ForeignKey('users.User', on_delete=models.CASCADE)
+    is_private = models.BooleanField(default=False)
+    is_draft = models.BooleanField(default=True)
+    
+    # Item details
+    description = models.TextField(blank=True)
+    condition = models.IntegerField(validators=[MinValueValidator(1), MaxValueValidator(10)])
+    detailed_condition = models.CharField(max_length=20, choices=CONDITION_CHOICES)
+    design = models.CharField(max_length=20, choices=DESIGN_CHOICES)
+    
+    # Relationships
+    brand = models.ForeignKey(Brand, on_delete=models.CASCADE)
+    club = models.ForeignKey(Club, on_delete=models.CASCADE, null=True, blank=True)
+    season = models.ForeignKey(Season, on_delete=models.CASCADE, null=True, blank=True)
+    competitions = models.ManyToManyField(Competition)
+    
+    # Colors
+    main_color = models.ForeignKey(Color, on_delete=models.CASCADE, null=True)
+    secondary_colors = models.ManyToManyField(Color, related_name='secondary')
+    
+    # Metadata
+    is_replica = models.BooleanField(default=False)
+    country = CountryField(blank=True, null=True)
+    tags = models.ManyToManyField(Tag, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    # Photo processing flag
+    is_processing_photos = models.BooleanField(default=False)
+    
+    # Generic relation to photos
+    photos = GenericRelation(Photo)
+```
+
+Source: `footycollect/collection/models.py:180-312`
+
+**Item Type Choices**:
+- `jersey` - Football jerseys/shirts
+- `shorts` - Match shorts
+- `outerwear` - Jackets, hoodies, windbreakers
+- `tracksuit` - Training tracksuits
+- `pants` - Training pants
+- `other` - Other memorabilia
+
+**Indexes**:
+```python
+indexes = [
+    models.Index(fields=['user', 'item_type']),
+    models.Index(fields=['user', 'is_private', 'is_draft']),
+    models.Index(fields=['user', 'created_at']),
+    models.Index(fields=['club', 'season']),
+]
+```
+
+Source: `footycollect/collection/models.py:316-327`
+
+### Jersey
+
+Jersey-specific model using Multi-Table Inheritance.
+
+**Table**: `collection_jersey`
+
+```python
+class Jersey(models.Model):
+    base_item = models.OneToOneField(
+        BaseItem,
+        on_delete=models.CASCADE,
+        related_name='jersey',
+        primary_key=True,
+    )
+    
+    # Jersey-specific fields
+    kit = models.ForeignKey(Kit, on_delete=models.CASCADE, null=True, blank=True)
+    size = models.ForeignKey(Size, on_delete=models.CASCADE)
+    is_fan_version = models.BooleanField(default=True)
+    is_signed = models.BooleanField(default=False)
+    has_nameset = models.BooleanField(default=False)
+    player_name = models.CharField(max_length=100, blank=True)
+    number = models.PositiveIntegerField(null=True, blank=True)
+    is_short_sleeve = models.BooleanField(default=True)
+```
+
+Source: `footycollect/collection/models.py:379-402`
+
+<Info>
+The `Jersey` model uses the `base_item` field as its primary key, creating a one-to-one relationship with `BaseItem`. This is the core of the Multi-Table Inheritance pattern.
+</Info>
+
+### Shorts
+
+Shorts-specific model.
+
+**Table**: `collection_shorts`
+
+```python
+class Shorts(models.Model):
+    base_item = models.OneToOneField(
+        BaseItem,
+        on_delete=models.CASCADE,
+        related_name='shorts',
+        primary_key=True,
+    )
+    
+    size = models.ForeignKey(Size, on_delete=models.CASCADE)
+    number = models.PositiveIntegerField(null=True, blank=True)
+    is_fan_version = models.BooleanField(default=True)
+```
+
+Source: `footycollect/collection/models.py:508-523`
+
+### Outerwear
+
+Outerwear-specific model for jackets, hoodies, etc.
+
+**Table**: `collection_outerwear`
+
+```python
+class Outerwear(models.Model):
+    TYPE_CHOICES = [
+        ('hoodie', 'Hoodie'),
+        ('jacket', 'Jacket'),
+        ('windbreaker', 'Windbreaker'),
+        ('crewneck', 'Crewneck'),
+    ]
+    
+    base_item = models.OneToOneField(
+        BaseItem,
+        on_delete=models.CASCADE,
+        related_name='outerwear',
+        primary_key=True,
+    )
+    
+    type = models.CharField(max_length=20, choices=TYPE_CHOICES)
+    size = models.ForeignKey(Size, on_delete=models.CASCADE)
+```
+
+Source: `footycollect/collection/models.py:535-556`
+
+### Tracksuit
+
+Tracksuit-specific model.
+
+**Table**: `collection_tracksuit`
+
+```python
+class Tracksuit(models.Model):
+    base_item = models.OneToOneField(
+        BaseItem,
+        on_delete=models.CASCADE,
+        related_name='tracksuit',
+        primary_key=True,
+    )
+    
+    size = models.ForeignKey(Size, on_delete=models.CASCADE)
+```
+
+Source: `footycollect/collection/models.py:568-581`
+
+## Supporting Models
+
+### Photo
+
+Generic photo model that can attach to any item using Django's GenericForeignKey.
+
+**Table**: `collection_photo`
+
+```python
+class Photo(models.Model):
+    # Generic foreign key to any model
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE, null=True)
+    object_id = models.PositiveIntegerField(null=True)
+    content_object = GenericForeignKey('content_type', 'object_id')
+    
+    # Image fields
+    image = models.ImageField(upload_to='item_photos/')
+    image_avif = models.ImageField(upload_to='item_photos_avif/', blank=True, null=True)
+    
+    # Metadata
+    caption = models.CharField(max_length=255, blank=True)
+    order = models.PositiveIntegerField(default=0)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    user = models.ForeignKey('users.User', on_delete=models.CASCADE, null=True)
+    
+    class Meta:
+        ordering = ['order']
+```
+
+Source: `footycollect/collection/models.py:52-73`
+
+<Note>
+Photos support both original format (`image`) and optimized AVIF format (`image_avif`) for better performance. AVIF conversion happens asynchronously via Celery.
+</Note>
+
+### Color
+
+Color model using hexadecimal values.
+
+**Table**: `collection_color`
+
+```python
+class Color(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+    hex_value = models.CharField(
+        max_length=7,
+        default='#FF0000',
+        help_text='Hexadecimal color value (e.g., #RRGGBB)'
+    )
+    
+    # Predefined color map
+    COLOR_MAP = {
+        'WHITE': '#FFFFFF',
+        'RED': '#FF0000',
+        'BLUE': '#0000FF',
+        'BLACK': '#000000',
+        'YELLOW': '#FFFF00',
+        # ... more colors
+    }
+```
+
+Source: `footycollect/collection/models.py:15-46`
+
+### Size
+
+Size information for items.
+
+**Table**: `collection_size`
+
+```python
+class Size(models.Model):
+    CATEGORY_CHOICES = [
+        ('tops', 'Tops'),
+        ('bottoms', 'Bottoms'),
+        ('other', 'Other'),
+    ]
+    
+    name = models.CharField(max_length=20)  # e.g., 'S', 'M', 'L', 'XL'
+    category = models.CharField(max_length=10, choices=CATEGORY_CHOICES)
+```
+
+Source: `footycollect/collection/models.py:366-374`
+
+## Core App Models
+
+### Club
+
+Football club/team information.
+
+**Table**: `core_club`
+
+**Fields**:
+- `name` - Club name
+- `slug` - URL-friendly identifier (unique)
+- `country` - Country code
+- `logo` - Club logo URL
+- `logo_dark` - Dark mode logo URL
+
+**Indexes**: `slug`, `name`
+
+### Season
+
+Football season information.
+
+**Table**: `core_season`
+
+**Fields**:
+- `year` - Season year (format: "2023-24")
+- `first_year` - First year of season ("2023")
+- `second_year` - Second year of season ("2024")
+
+**Indexes**: `year`
+
+### Competition
+
+Football competition/league information.
+
+**Table**: `core_competition`
+
+**Fields**:
+- `name` - Competition name
+- `slug` - URL-friendly identifier (unique)
+- `logo` - Competition logo URL
+- `logo_dark` - Dark mode logo URL
+
+**Indexes**: `slug`
+
+### Brand
+
+Kit manufacturer/brand information.
+
+**Table**: `core_brand`
+
+**Fields**:
+- `name` - Brand name
+- `slug` - URL-friendly identifier (unique)
+- `logo` - Brand logo URL
+- `logo_dark` - Dark mode logo URL
+
+**Indexes**: `slug`
+
+## Entity Relationship Diagram
+
+```
+BaseItem
+├── OneToOne → Jersey (via base_item)
+├── OneToOne → Shorts (via base_item)
+├── OneToOne → Outerwear (via base_item)
+├── OneToOne → Tracksuit (via base_item)
+├── ForeignKey → User
+├── ForeignKey → Club (team)
+├── ForeignKey → Season
+├── ForeignKey → Brand
+├── ForeignKey → Color (main_color)
+├── ManyToMany → Color (secondary_colors)
+├── ManyToMany → Competition
+└── GenericRelation → Photo
+
+Jersey
+├── OneToOne → BaseItem (primary_key=True)
+├── ForeignKey → Kit
+└── ForeignKey → Size
+
+Photo
+├── GenericForeignKey → BaseItem (or other models)
+└── ForeignKey → User
+```
+
+## Query Patterns
+
+### Get All Items for User
+
+```python
+BaseItem.objects.filter(user=user)
+```
+
+### Get Specific Item Type
+
+```python
+Jersey.objects.select_related('base_item').filter(base_item__user=user)
+```
+
+### Get Items with Related Data
+
+```python
+BaseItem.objects.select_related(
+    'team', 'season', 'brand', 'type'
+).prefetch_related(
+    'competition', 'photos'
+).filter(user=user)
+```
+
+<Note>
+Use `select_related()` for ForeignKey relationships and `prefetch_related()` for ManyToMany relationships to optimize queries and reduce database hits.
+</Note>
+
+### Get Public Items
+
+```python
+BaseItem.objects.filter(is_private=False, is_draft=False)
+```
+
+### Get Item with Specific Type Data
+
+```python
+# Access jersey-specific data
+item = BaseItem.objects.get(pk=item_id)
+if item.item_type == 'jersey':
+    jersey = item.jersey
+    print(f"Player: {jersey.player_name} #{jersey.number}")
+```
+
+## Custom Managers
+
+FootyCollect provides custom managers for common query patterns:
+
+### BaseItemManager
+
+```python
+class BaseItemManager(models.Manager):
+    def public(self):
+        return self.filter(is_private=False, is_draft=False)
+    
+    def private(self):
+        return self.filter(is_private=True)
+    
+    def drafts(self):
+        return self.filter(is_draft=True)
+```
+
+Source: `footycollect/collection/models.py:157-165`
+
+### MTIManager
+
+```python
+class MTIManager(models.Manager):
+    """Manager for Multi-Table Inheritance models."""
+    
+    def public(self):
+        return self.filter(base_item__is_private=False, base_item__is_draft=False)
+    
+    def private(self):
+        return self.filter(base_item__is_private=True)
+    
+    def drafts(self):
+        return self.filter(base_item__is_draft=True)
+```
+
+Source: `footycollect/collection/models.py:169-177`
+
+**Usage**:
+
+```python
+# Get all public jerseys
+Jersey.objects.public()
+
+# Get all draft items
+BaseItem.objects.drafts()
+```
+
+## Data Integrity
+
+### Constraints
+
+- `BaseItem.item_type` must match the related model type
+- Cascade deletes: Deleting `BaseItem` automatically deletes related specific model (Jersey, Shorts, etc.)
+- Unique constraints on slugs for Club, Competition, Brand
+- Photo order validation ensures consistent ordering
+
+### Validation
+
+Models implement save() methods to enforce data integrity:
+
+```python
+class Jersey(models.Model):
+    def save(self, *args, **kwargs):
+        # Ensure the base_item has the correct item_type
+        if not self.base_item.item_type:
+            self.base_item.item_type = 'jersey'
+        
+        # Auto-generate name
+        self.base_item.name = self.build_name()
+        self.base_item.save()
+        
+        super().save(*args, **kwargs)
+```
+
+Source: `footycollect/collection/models.py:415-422`
+
+## Indexes and Performance
+
+### Performance Indexes
+
+**BaseItem Queries**:
+- `(user_id, item_type)` - User's items by type
+- `(user_id, is_private, is_draft)` - Public/draft filtering
+- `(user_id, created_at)` - Chronological ordering
+- `(club, season)` - Club and season lookups
+
+**Photo Queries**:
+- `(content_type_id, object_id)` - Generic foreign key lookups
+- `order` - Photo ordering
+- `user_id` - User's photos
+
+**Lookup Tables**:
+- `slug` indexes on Club, Competition, Brand for URL lookups
+- `name` indexes for text searches
+
+### Query Optimization Tips
+
+<CodeGroup>
+```python Good - Optimized
+# Use select_related for ForeignKey
+Jersey.objects.select_related(
+    'base_item__user',
+    'base_item__club',
+    'base_item__season',
+    'base_item__brand',
+    'kit',
+    'size'
+).filter(base_item__user=user)
+```
+
+```python Bad - N+1 Queries
+# This creates N+1 queries
+jerseys = Jersey.objects.filter(base_item__user=user)
+for jersey in jerseys:
+    print(jersey.base_item.club.name)  # Additional query per iteration!
+```
+</CodeGroup>
+
+## Migration Strategy
+
+### Adding New Item Types
+
+1. Create new model with `OneToOneField` to `BaseItem`
+2. Add new `item_type` choice to `BaseItem.ITEM_TYPE_CHOICES`
+3. Implement `save()` method to set correct `item_type`
+4. Create migration: `python manage.py makemigrations`
+5. Apply migration: `python manage.py migrate`
+
+### Adding Fields
+
+- **Common fields**: Add to `BaseItem`
+- **Type-specific fields**: Add to specific model (Jersey, Shorts, etc.)
+
+<Info>
+For more details on the Multi-Table Inheritance pattern, see [Multi-Table Inheritance](/architecture/multi-table-inheritance).
+</Info>

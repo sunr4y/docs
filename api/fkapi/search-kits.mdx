@@ -1,0 +1,427 @@
+---
+title: "Searching Kits via FKAPI"
+description: "Learn how to search for football kits using the FKAPI integration"
+---
+
+## Overview
+
+FKAPI provides powerful search functionality for finding kits by keyword, club, season, and competition. FootyCollect wraps these capabilities through the `FKAPIClient` to enable seamless kit discovery.
+
+## Search Methods
+
+### Search Kits by Keyword
+
+The primary search method for finding kits across the Football Kit Archive:
+
+```python
+from footycollect.api.client import FKAPIClient
+
+client = FKAPIClient()
+results = client.search_kits("arsenal home 2023")
+```
+
+**Implementation** (`client.py:423-434`):
+
+```python
+def search_kits(self, query: str) -> list[dict]:
+    """Search kits by name."""
+    logger.info("Searching kits with query: '%s'", query)
+    result = self._get("/kits/search", params={"keyword": query})
+    
+    if result is None:
+        logger.warning("FKAPI unavailable, returning empty results for kit search")
+        return []
+    
+    results = self._extract_list_from_result(result)
+    logger.info("Search returned %s results", len(results))
+    return results
+```
+
+<Note>
+The `search_kits()` method automatically handles FKAPI unavailability by returning an empty list instead of raising an exception. Always check for empty results in your code.
+</Note>
+
+### Search Clubs
+
+Search for clubs to find their kits by season:
+
+```python
+clubs = client.search_clubs("manchester")
+# Returns list of clubs matching "manchester"
+# Example: [{"id": 123, "name": "Manchester United", "country": "England", ...}]
+```
+
+**Implementation** (`client.py:400-403`):
+
+```python
+def search_clubs(self, query: str) -> list[dict]:
+    """Search clubs by name."""
+    result = self._get("/clubs/search", params={"keyword": query})
+    return self._extract_list_from_result(result)
+```
+
+### Search Brands
+
+Find kits by manufacturer brand:
+
+```python
+brands = client.search_brands("nike")
+# Returns list of brands matching "nike"
+```
+
+**Fallback Strategy** (`client.py:436-458`):
+
+If the direct brand search endpoint is unavailable, the client falls back to extracting brands from kit search results:
+
+```python
+if result is None:
+    logger.warning("FKAPI unavailable, trying alternative method for brand search")
+    kits = self.search_kits(query)
+    brands = {}
+    for kit in kits:
+        brand = kit.get("brand") or kit.get("team", {}).get("brand")
+        if brand:
+            brand_name = brand.get("name") if isinstance(brand, dict) else brand
+            if brand_name and brand_name not in brands:
+                brands[brand_name] = {
+                    "id": brand.get("id") if isinstance(brand, dict) else None,
+                    "name": brand_name,
+                }
+    return list(brands.values())
+```
+
+<Warning>
+The fallback strategy may return incomplete results compared to the direct API endpoint. It's best used when FKAPI's brand endpoint is temporarily unavailable.
+</Warning>
+
+### Search Competitions
+
+Find kits by competition (league, tournament):
+
+```python
+competitions = client.search_competitions("champions league")
+# Returns list of competitions matching "champions league"
+```
+
+**Fallback Strategy** (`client.py:460-484`):
+
+Similar to brand search, competition search has a fallback that extracts competitions from kit results.
+
+## Search Parameters
+
+### Keyword Search
+
+All search methods accept a `keyword` parameter:
+
+<ParamField path="keyword" type="string" required>
+  The search query string. Supports partial matches and multiple words.
+  
+  **Examples:**
+  - `"arsenal"` - Finds all Arsenal kits
+  - `"barcelona home"` - Finds Barcelona home kits
+  - `"2023"` - Finds kits from 2023 season
+</ParamField>
+
+### Minimum Query Length
+
+Proxy endpoints enforce minimum query lengths to prevent excessive API calls:
+
+```python
+# From views.py:66-79
+@require_GET
+def search_kits(request):
+    query = request.GET.get("keyword", "")
+    min_query_length = 3
+    if len(query) < min_query_length:
+        return JsonResponse({"results": []})
+    
+    client = FKAPIClient()
+    results = client.search_kits(query)
+    return JsonResponse({"results": results})
+```
+
+- **Kit search**: Minimum 3 characters
+- **Brand search**: Minimum 2 characters
+- **Competition search**: Minimum 2 characters
+
+## Response Format
+
+### Kit Search Response
+
+Kit search returns a list of kit objects with the following structure:
+
+```json
+[
+  {
+    "id": 12345,
+    "name": "Arsenal Home 2023-24",
+    "slug": "arsenal-home-2023-24",
+    "team": {
+      "id": 1,
+      "name": "Arsenal",
+      "country": "England",
+      "logo": "https://example.com/logos/arsenal.png"
+    },
+    "season": {
+      "id": 100,
+      "year": "2023-24"
+    },
+    "brand": {
+      "id": 5,
+      "name": "Adidas",
+      "logo": "https://example.com/logos/adidas.png"
+    },
+    "type": "Home",
+    "competition": [
+      {
+        "id": 10,
+        "name": "Premier League"
+      }
+    ],
+    "main_img_url": "https://example.com/kits/arsenal-home-2023.jpg",
+    "kitcolor1": "RED",
+    "kitcolor2": "WHITE",
+    "design": "plain"
+  }
+]
+```
+
+### Club Search Response
+
+```json
+[
+  {
+    "id": 1,
+    "name": "Arsenal",
+    "slug": "arsenal",
+    "country": "England",
+    "logo": "https://example.com/logos/arsenal.png",
+    "logo_dark": "https://example.com/logos/arsenal-dark.png"
+  }
+]
+```
+
+## Using Search in FootyCollect
+
+### Frontend Kit Search
+
+The search functionality is exposed through proxy endpoints for frontend use:
+
+```javascript
+// Search kits as user types
+fetch('/fkapi/kits/search/?keyword=arsenal')
+  .then(response => response.json())
+  .then(data => {
+    console.log(data.results); // Array of kit objects
+  });
+```
+
+### Get Club Seasons
+
+Once you have a club ID, fetch available seasons:
+
+```python
+seasons = client.get_club_seasons(club_id=1)
+# Returns: [{"id": 100, "year": "2023-24"}, {"id": 99, "year": "2022-23"}, ...]
+```
+
+**Implementation** (`client.py:405-408`):
+
+```python
+def get_club_seasons(self, club_id: int) -> list[dict]:
+    """Get seasons for a club."""
+    result = self._get("/seasons", params={"id": club_id})
+    return self._extract_list_from_result(result)
+```
+
+### Get Club Kits by Season
+
+Find all kits for a specific club and season:
+
+```python
+kits = client.get_club_kits(club_id=1, season_id=100)
+# Returns list of kits for Arsenal in 2023-24 season
+```
+
+**Implementation** (`client.py:410-416`):
+
+```python
+def get_club_kits(self, club_id: int, season_id: int) -> list[dict]:
+    """Get kits for a club for a specific season."""
+    endpoint = f"/clubs/{club_id}/kits"
+    params = {"season": season_id}
+    result = self._get(endpoint, params=params)
+    return self._extract_list_from_result(result)
+```
+
+### Get Kit Details
+
+Fetch complete details for a specific kit:
+
+```python
+kit_details = client.get_kit_details(kit_id=12345)
+# Returns full kit object with all metadata
+
+# Force fresh data (bypass cache)
+kit_details = client.get_kit_details(kit_id=12345, use_cache=False)
+```
+
+**Implementation** (`client.py:418-421`):
+
+```python
+def get_kit_details(self, kit_id: int, *, use_cache: bool = True) -> dict | None:
+    """Get complete details of a kit."""
+    return self._get(f"/kits/{kit_id}", use_cache=use_cache)
+```
+
+<Note>
+The `get_kit_details()` method can return `None` if FKAPI is unavailable. Always check for None before using the result.
+</Note>
+
+## Complete Search Workflow
+
+Here's how to implement a complete kit search flow:
+
+<CodeGroup>
+
+```python Python
+from footycollect.api.client import FKAPIClient
+
+def find_and_display_kit(search_term: str):
+    client = FKAPIClient()
+    
+    # Step 1: Search for kits
+    kits = client.search_kits(search_term)
+    
+    if not kits:
+        print("No kits found or FKAPI unavailable")
+        return
+    
+    # Step 2: Display results
+    for kit in kits:
+        print(f"{kit['name']} - {kit['season']['year']}")
+    
+    # Step 3: Get detailed info for first kit
+    first_kit_id = kits[0]['id']
+    kit_details = client.get_kit_details(first_kit_id)
+    
+    if kit_details:
+        print(f"\nDetailed info for {kit_details['name']}:")
+        print(f"Brand: {kit_details['brand']['name']}")
+        print(f"Type: {kit_details['type']}")
+        print(f"Colors: {kit_details['kitcolor1']}, {kit_details['kitcolor2']}")
+
+# Usage
+find_and_display_kit("arsenal home 2023")
+```
+
+```python Django View
+from django.http import JsonResponse
+from django.views.decorators.http import require_GET
+from footycollect.api.client import FKAPIClient
+
+@require_GET
+def search_kits_view(request):
+    query = request.GET.get('keyword', '')
+    
+    # Validate minimum length
+    if len(query) < 3:
+        return JsonResponse({'results': [], 'error': 'Query too short'})
+    
+    # Search FKAPI
+    client = FKAPIClient()
+    results = client.search_kits(query)
+    
+    # Handle unavailability
+    if results is None:
+        return JsonResponse(
+            {'error': 'Kit search temporarily unavailable'},
+            status=503
+        )
+    
+    return JsonResponse({'results': results})
+```
+
+</CodeGroup>
+
+## Advanced Search Patterns
+
+### Multi-Stage Search
+
+Combine multiple search methods for refined results:
+
+```python
+# 1. Find club
+clubs = client.search_clubs("barcelona")
+club_id = clubs[0]['id'] if clubs else None
+
+if club_id:
+    # 2. Get available seasons
+    seasons = client.get_club_seasons(club_id)
+    
+    # 3. Get kits for latest season
+    if seasons:
+        latest_season = seasons[0]['id']
+        kits = client.get_club_kits(club_id, latest_season)
+        print(f"Found {len(kits)} kits for latest season")
+```
+
+### Search with Caching Control
+
+```python
+# Use cached results for fast browsing
+kits = client.search_kits("liverpool")
+
+# Force fresh results for critical operations
+kit_details = client.get_kit_details(
+    kit_id=12345,
+    use_cache=False  # Bypass cache
+)
+```
+
+## Error Handling Best Practices
+
+<Warning>
+Always handle potential None returns and empty results:
+</Warning>
+
+```python
+def safe_kit_search(query: str) -> list[dict]:
+    client = FKAPIClient()
+    
+    try:
+        results = client.search_kits(query)
+        
+        # Handle None (FKAPI unavailable)
+        if results is None:
+            logger.warning(f"FKAPI unavailable for query: {query}")
+            return []
+        
+        # Handle empty results
+        if not results:
+            logger.info(f"No kits found for query: {query}")
+            return []
+        
+        return results
+        
+    except Exception as e:
+        logger.exception(f"Error searching kits: {e}")
+        return []
+```
+
+## Rate Limiting Considerations
+
+All search methods are subject to rate limiting:
+
+- **Client-side**: 100 requests per minute
+- **Proxy endpoints**: 100 requests per hour per IP
+
+<Note>
+Use caching effectively to stay within rate limits. Most search queries are cached for 1 hour by default.
+</Note>
+
+## Next Steps
+
+- Learn about [bulk operations](/api/fkapi/bulk-operations) for importing multiple kits
+- Review the [FKAPI overview](/api/fkapi/overview) for architecture details
+- Explore [proxy endpoints](/api/reference) for frontend integration

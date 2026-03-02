@@ -1,0 +1,210 @@
+---
+title: fetch_home_kits
+description: Fetch and cache kits for homepage display from FKAPI
+---
+
+The `fetch_home_kits` command fetches kit data from the FKAPI bulk endpoint, downloads and optimizes images to AVIF format, and caches the data for use by the home page view.
+
+## How it works
+
+<Steps>
+  <Step title="Read kit slugs">
+    Reads kit slugs from a JSON file (`static/data/home_kits_slugs.json`)
+  </Step>
+  <Step title="Fetch from FKAPI">
+    Calls FKAPI bulk endpoint to retrieve kit data
+  </Step>
+  <Step title="Download images">
+    Downloads kit images and compresses them to AVIF format
+  </Step>
+  <Step title="Cache data">
+    Saves kit data and images to storage for fast homepage loading
+  </Step>
+</Steps>
+
+## Basic usage
+
+```bash
+python manage.py fetch_home_kits
+```
+
+## Storage backends
+
+The command supports both local and remote storage:
+
+- **Local storage**: Files saved to `MEDIA_ROOT/home_kits/`
+- **Cloud storage**: Files uploaded to S3/R2 via Django's `default_storage`
+
+### Storage paths
+
+- Kit data: `home_kits/home_kits_data.json`
+- Kit images: `home_kits/<kit_slug>.avif`
+- Club/brand logos: `home_kits/logos/<entity>_<slug>.avif`
+
+## Configuration
+
+The command requires:
+
+- **FKAPI running**: See [FKAPI Integration](/features/fkapi-integration)
+- **Kit slugs file**: `footycollect/static/data/home_kits_slugs.json`
+
+### Kit slugs format
+
+```json
+{
+  "slugs": [
+    "manchester-united-1999-2000-home",
+    "barcelona-2010-2011-home",
+    "real-madrid-2016-2017-home"
+  ]
+}
+```
+
+## Proxy support
+
+For downloading images through a rotating proxy, configure:
+
+```bash
+ROTATING_PROXY_URL=http://proxy-server:8000
+ROTATING_PROXY_USERNAME=user
+ROTATING_PROXY_PASSWORD=pass
+```
+
+## Example workflow
+
+<Steps>
+  <Step title="Create slugs file">
+    Create or update `footycollect/static/data/home_kits_slugs.json` with desired kit slugs
+  </Step>
+  
+  <Step title="Run command">
+    ```bash
+    python manage.py fetch_home_kits
+    ```
+  </Step>
+  
+  <Step title="Verify output">
+    Check that images were downloaded and data file was created:
+    
+    ```bash
+    # Local storage
+    ls media/home_kits/
+    
+    # Check data file
+    cat footycollect/static/data/home_kits_data.json
+    ```
+  </Step>
+</Steps>
+
+## Output example
+
+```
+Fetching home kits from FKAPI...
+Found 3 kit slugs to fetch
+Fetching kits in bulk from FKAPI...
+Downloading images for 3 kits...
+  Downloaded and optimized: manchester-united-1999-2000-home.avif
+  Downloaded and optimized: barcelona-2010-2011-home.avif
+  Downloaded and optimized: real-madrid-2016-2017-home.avif
+Downloading logos...
+  Downloaded club logo: manchester-united.avif
+  Downloaded brand logo: adidas.avif
+Saved kit data to home_kits/home_kits_data.json
+Complete! 3 kits cached for homepage.
+```
+
+## Image optimization
+
+All images are automatically optimized:
+
+- Converted to AVIF format for smaller file size
+- Compressed using `optimize_image()` utility
+- Transparency preserved where applicable
+
+<Info>
+  AVIF images are typically 50-70% smaller than JPEG while maintaining quality.
+</Info>
+
+## Scheduling
+
+For production, schedule this command to keep homepage kits fresh:
+
+```bash
+# Crontab - run weekly
+0 3 * * 0 cd /var/www/footycollect && venv/bin/python manage.py fetch_home_kits
+```
+
+Or add to Celery Beat:
+
+```python
+from django_celery_beat.models import IntervalSchedule, PeriodicTask
+
+schedule, _ = IntervalSchedule.objects.get_or_create(
+    every=7,
+    period=IntervalSchedule.DAYS,
+)
+
+PeriodicTask.objects.create(
+    interval=schedule,
+    name="Fetch home kits",
+    task="core.tasks.fetch_home_kits",
+)
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="FKAPI connection error">
+    Verify FKAPI is running:
+    
+    ```bash
+    curl http://$FKA_API_IP/health
+    ```
+    
+    Check environment variables:
+    ```bash
+    echo $FKA_API_IP
+    echo $API_KEY
+    ```
+  </Accordion>
+  
+  <Accordion title="Slugs file not found">
+    Ensure the file exists at the correct path:
+    
+    ```bash
+    ls footycollect/static/data/home_kits_slugs.json
+    ```
+    
+    Create it if missing with valid kit slugs from Football Kit Archive.
+  </Accordion>
+  
+  <Accordion title="Image download failures">
+    Check network connectivity and proxy configuration. Images are fetched from Football Kit Archive CDN.
+    
+    If using a proxy, verify credentials:
+    ```bash
+    curl -x $ROTATING_PROXY_URL -U $ROTATING_PROXY_USERNAME:$ROTATING_PROXY_PASSWORD https://httpbin.org/ip
+    ```
+  </Accordion>
+  
+  <Accordion title="Storage errors">
+    For remote storage (S3/R2), verify credentials:
+    
+    ```bash
+    python manage.py shell
+    from django.core.files.storage import default_storage
+    default_storage.exists('test.txt')
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="FKAPI Integration" icon="puzzle-piece" href="/features/fkapi-integration">
+    Learn about FKAPI setup and configuration
+  </Card>
+  <Card title="Photo Management" icon="image" href="/features/photo-management">
+    Understand image optimization in FootyCollect
+  </Card>
+</CardGroup>

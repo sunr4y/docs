@@ -1,0 +1,263 @@
+---
+title: Photo Management
+description: Upload, optimize, and organize photos for your football memorabilia with automatic AVIF conversion and smart thumbnail generation
+---
+
+FootyCollect includes a sophisticated photo management system that automatically optimizes images for web delivery while maintaining quality. Every photo is processed through an optimization pipeline that converts images to AVIF format for superior compression.
+
+## Photo Upload Process
+
+### Dropzone Interface
+
+FootyCollect uses a drag-and-drop interface for uploading photos:
+
+1. **Drag files** onto the dropzone area or click to browse
+2. **Multiple uploads**: Upload up to 10 photos per item
+3. **Instant preview**: See thumbnails as files upload
+4. **Progress tracking**: Monitor upload progress for each file
+
+<Tip>
+You can upload photos before completing the item creation form. Photos are stored temporarily and associated with the item when you save.
+</Tip>
+
+### Supported Formats
+
+FootyCollect accepts the following image formats:
+
+- **JPEG** (.jpg, .jpeg)
+- **PNG** (.png)
+- **WebP** (.webp)
+- **GIF** (.gif)
+- **AVIF** (.avif)
+
+<Info>
+All uploaded images are automatically converted to AVIF format for optimal compression and quality, regardless of the original format.
+</Info>
+
+### File Size Limits
+
+- **Maximum file size**: 15 MB per photo
+- **Maximum photos per item**: 10 photos
+- **Recommended resolution**: Up to 3840×2160 (4K) for best results
+
+## Automatic AVIF Optimization
+
+FootyCollect uses the `pillow-avif-plugin` to automatically convert all uploaded photos to AVIF format, which provides superior compression compared to JPEG and PNG.
+
+### How It Works
+
+1. **Upload**: You upload your photo in any supported format
+2. **Background processing**: Celery task processes the image asynchronously
+3. **Smart conversion**: 
+   - Detects transparency in images (PNG with alpha channel)
+   - Preserves transparency by converting to RGBA mode
+   - Converts images without transparency to RGB mode
+4. **Resize if needed**: Images larger than 3840×2160 are resized while maintaining aspect ratio
+5. **Quality optimization**: Saves at 90% quality for optimal balance
+6. **Dual storage**: Original and AVIF versions are both stored
+
+<CodeGroup>
+```python Photo Model
+class Photo(models.Model):
+    image = models.ImageField(upload_to="item_photos/")
+    image_avif = models.ImageField(upload_to="item_photos_avif/", blank=True, null=True)
+    caption = models.CharField(max_length=255, blank=True)
+    order = models.PositiveIntegerField(default=0)
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+    user = models.ForeignKey("users.User", on_delete=models.CASCADE)
+    
+    # Automatic thumbnail generation
+    thumbnail = ImageSpecField(
+        source="image",
+        processors=[ResizeToFill(100, 100)],
+        format="JPEG",
+        options={"quality": 75},
+    )
+```
+
+```python Optimization Function
+def optimize_image(
+    image_file: File,
+    max_size: tuple[int, int] = (3840, 2160),
+    quality: int = 90,
+    img_format: str = "AVIF",
+) -> File | None:
+    # Check transparency
+    img = Image.open(image_file)
+    has_transparency = _check_image_has_transparency(img)
+    
+    # Convert to appropriate mode
+    if has_transparency:
+        img = img.convert("RGBA")
+    else:
+        img = img.convert("RGB")
+    
+    # Resize if needed
+    if img.size[0] > max_size[0] or img.size[1] > max_size[1]:
+        img.thumbnail(max_size, Image.Resampling.LANCZOS)
+    
+    # Save as AVIF
+    output = BytesIO()
+    img.save(output, format=img_format, quality=quality)
+    return File(output, name=f"{original_name}.avif")
+```
+</CodeGroup>
+
+### AVIF Benefits
+
+- **50% smaller files**: AVIF typically produces files 50% smaller than JPEG at the same quality
+- **Better quality**: Superior compression algorithm preserves more detail
+- **Transparency support**: Full alpha channel support like PNG
+- **Modern codec**: Based on AV1 video codec technology
+- **Fallback support**: Original image serves as fallback if AVIF isn't supported
+
+<Note>
+The AVIF conversion happens in the background using Celery. Your photo is immediately available (using the original format) while the AVIF version is being generated.
+</Note>
+
+## Thumbnail Generation
+
+FootyCollect automatically generates thumbnails for all photos using ImageKit:
+
+- **Size**: 100×100 pixels (square crop)
+- **Format**: JPEG at 75% quality
+- **Lazy generation**: Thumbnails are generated on-demand, not during upload
+- **Caching**: Thumbnails are cached for fast loading
+
+### Use Cases
+
+- Collection grid views
+- Photo carousels
+- User profile photo galleries
+- Search results preview
+
+## Photo Organization
+
+### Photo Ordering
+
+Photos are displayed in the order you specify:
+
+1. **Drag to reorder**: Use drag-and-drop to change photo order
+2. **Main photo**: The first photo (order 0) is the main photo shown in lists
+3. **Manual ordering**: Photos have an `order` field that determines display sequence
+
+<Tip>
+The main photo (first in order) is used as the thumbnail in collection lists and feeds. Choose your best photo as the main photo.
+</Tip>
+
+### Photo Captions
+
+Add captions to provide context:
+
+- **Optional**: Captions are not required
+- **255 character limit**: Keep captions concise
+- **Display**: Shown in photo galleries and detail views
+
+### Reordering Photos
+
+You can reorder photos after upload:
+
+```python
+# PhotoService handles reordering
+photo_service.reorder_photos(item, photo_orders=[
+    (photo_id_1, 0),  # First photo
+    (photo_id_2, 1),  # Second photo
+    (photo_id_3, 2),  # Third photo
+])
+```
+
+## Photo Validation
+
+FootyCollect validates photos during upload:
+
+### File Size Check
+
+```python
+if photo_file.size > 15 * 1024 * 1024:
+    raise ValueError("Photo is too large. Maximum size is 15MB.")
+```
+
+### Content Type Check
+
+```python
+allowed_content_types = [
+    "image/jpeg", 
+    "image/png", 
+    "image/webp", 
+    "image/gif", 
+    "image/avif"
+]
+if photo_file.content_type not in allowed_content_types:
+    raise ValueError("Invalid format. Allowed: JPEG, PNG, WebP, GIF, AVIF")
+```
+
+### Count Limit
+
+```python
+max_photos_per_item = 10
+if len(photo_files) > max_photos_per_item:
+    raise ValueError("Too many photos. Maximum 10 photos per item.")
+```
+
+## Smart Image Delivery
+
+FootyCollect serves the best image format for each request:
+
+```python
+def get_image_url(self):
+    if self.image_avif:
+        # Check if AVIF file exists
+        if self.image_avif.storage.exists(self.image_avif.name):
+            return self.image_avif.url
+    # Fallback to original
+    return self.image.url if self.image else ""
+```
+
+- **AVIF first**: Serves AVIF version if available
+- **Automatic fallback**: Falls back to original if AVIF processing failed
+- **Storage check**: Verifies file exists before serving
+
+## Photo Deletion
+
+Deleting photos properly cleans up all associated files:
+
+```python
+def delete(self, *args, **kwargs):
+    # Store file names before deletion
+    image_name = self.image.name
+    avif_name = self.image_avif.name
+    
+    # Delete from database
+    super().delete(*args, **kwargs)
+    
+    # Remove files from storage
+    if image_name and storage.exists(image_name):
+        storage.delete(image_name)
+    if avif_name and storage.exists(avif_name):
+        storage.delete(avif_name)
+```
+
+- **Database cleanup**: Removes photo records
+- **File cleanup**: Deletes both original and AVIF files
+- **Automatic**: Happens when you delete an item or individual photo
+
+## Orphaned Photo Cleanup
+
+FootyCollect includes a Celery task that cleans up orphaned photos (photos uploaded but not associated with any item):
+
+- **Scheduled task**: Runs periodically via Celery Beat
+- **Grace period**: Photos must be older than a threshold before deletion
+- **Automatic**: No manual intervention needed
+
+<Note>
+Orphaned photos are created when users upload photos but don't complete the item creation form. The cleanup task removes these after a grace period.
+</Note>
+
+## Best Practices
+
+1. **Upload high-resolution photos**: FootyCollect will optimize them automatically
+2. **Use multiple angles**: Show front, back, tags, and details
+3. **Choose the best main photo**: First photo appears in lists and feeds
+4. **Add captions for context**: Explain special features or condition details
+5. **Let AVIF conversion complete**: Wait for background processing for best performance
+6. **Take well-lit photos**: Good lighting shows true colors and condition

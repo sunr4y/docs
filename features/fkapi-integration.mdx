@@ -1,0 +1,345 @@
+---
+title: FKAPI Integration
+description: Search and add kits from the Football Kit Archive with automatic metadata population using the FKAPI service
+---
+
+FootyCollect integrates with the **Football Kit Archive** via [FKAPI](https://github.com/sunr4y/fkapi) (Football Kit Archive API) to provide a seamless search-and-add workflow for cataloging your collection. This integration automatically populates item metadata including club, season, competition, brand, and design information.
+
+## What is FKAPI?
+
+FKAPI is a RESTful API service that provides access to the Football Kit Archive database, which contains thousands of football kits from clubs around the world. It serves as the primary data source for kit metadata when adding items to your FootyCollect collection.
+
+<Info>
+FKAPI is an **optional** dependency. FootyCollect works without FKAPI, but you'll need to enter all item details manually. With FKAPI running, you get automatic metadata population and search capabilities.
+</Info>
+
+### Key Features
+
+- **Club search**: Search for clubs by name
+- **Season lookup**: Get available seasons for each club
+- **Kit catalog**: Browse kits by club and season
+- **Kit details**: Retrieve complete kit information including colors, design, competitions, and images
+- **Bulk operations**: Fetch multiple kits in a single request
+
+## How FKAPI Integrates with FootyCollect
+
+The integration works through a client-service architecture:
+
+### FKAPIClient
+
+The `FKAPIClient` class handles all communication with the FKAPI service:
+
+```python
+class FKAPIClient:
+    def __init__(self):
+        self.base_url = f"http://{settings.FKA_API_IP}"
+        self.api_key = settings.API_KEY
+        self.cache_timeout = 3600  # 1 hour cache
+        self.request_timeout = 60
+        self.max_retries = 3
+```
+
+<CardGroup cols={2}>
+  <Card title="Circuit Breaker" icon="shield-halved">
+    Prevents cascading failures by temporarily blocking requests after repeated failures
+  </Card>
+  <Card title="Rate Limiting" icon="gauge-high">
+    Maximum 100 requests per minute to protect the API
+  </Card>
+  <Card title="Retry Logic" icon="rotate">
+    Automatic retry with exponential backoff for failed requests
+  </Card>
+  <Card title="Response Caching" icon="database">
+    1-hour cache for search results and kit details
+  </Card>
+</CardGroup>
+
+### Configuration
+
+Set these environment variables to enable FKAPI integration:
+
+```bash .env
+FKA_API_IP=localhost:8000  # FKAPI server address
+API_KEY=your_api_key_here  # FKAPI authentication key
+```
+
+## Search Workflow
+
+### 1. Search for Clubs
+
+When creating a new item, start by searching for a club:
+
+```python
+client = FKAPIClient()
+clubs = client.search_clubs(query="Real Madrid")
+# Returns: [{"id": 123, "name": "Real Madrid CF", "country": "ESP", ...}]
+```
+
+### 2. Get Club Seasons
+
+Once you select a club, fetch available seasons:
+
+```python
+seasons = client.get_club_seasons(club_id=123)
+# Returns: [{"id": 456, "year": "2023-24", ...}, {"id": 457, "year": "2022-23", ...}]
+```
+
+### 3. Browse Kits for Season
+
+Select a season to see available kits:
+
+```python
+kits = client.get_club_kits(club_id=123, season_id=456)
+# Returns: [
+#   {"id": 789, "type": "Home", "brand": "Adidas", ...},
+#   {"id": 790, "type": "Away", "brand": "Adidas", ...}
+# ]
+```
+
+### 4. Get Kit Details
+
+Retrieve complete metadata for the selected kit:
+
+```python
+kit_details = client.get_kit_details(kit_id=789)
+# Returns complete kit data including:
+# - Colors (main, secondary)
+# - Design pattern
+# - Competitions
+# - Brand information
+# - Official images
+```
+
+<Tip>
+Kit details are cached for 1 hour by default. Set `use_cache=False` if you need fresh data:
+
+```python
+kit_details = client.get_kit_details(kit_id=789, use_cache=False)
+```
+</Tip>
+
+## Automatic Metadata Population
+
+When you select a kit from FKAPI, FootyCollect automatically populates:
+
+### Club Information
+
+- Club name
+- Club logo (downloaded and stored locally)
+- Country
+
+### Season Data
+
+- Season year (e.g., "2023-24")
+- Start and end dates
+
+### Kit Details
+
+- Kit type (Home, Away, Third, Goalkeeper, etc.)
+- Brand name and logo
+- Main color and secondary colors
+- Design pattern (Stripes, Plain, Hoops, etc.)
+
+### Competitions
+
+- Associated leagues and tournaments
+- Competition logos
+
+<Accordion title="How Kit Processing Works">
+The `FKAPIKitProcessor` service handles kit data processing:
+
+```python
+class FKAPIKitProcessor:
+    def process_kit_data(self, form, kit_id: int):
+        # Fetch kit details from FKAPI
+        kit_data = self.fkapi_client.get_kit_details(kit_id)
+        
+        # Process and create/update entities
+        club = self._process_club(kit_data)
+        season = self._process_season(kit_data)
+        brand = self._process_brand(kit_data)
+        kit_type = self._process_kit_type(kit_data)
+        competitions = self._process_competitions(kit_data)
+        colors = self._process_colors(kit_data)
+        
+        # Populate form instance
+        form.instance.club = club
+        form.instance.season = season
+        form.instance.brand = brand
+        # ... and so on
+```
+
+This ensures all related entities (clubs, brands, competitions) are created in your local database if they don't already exist.
+</Accordion>
+
+## Advanced Features
+
+### Bulk Kit Fetching
+
+Fetch multiple kits in a single API call:
+
+```python
+slugs = ["real-madrid-home-2023-24", "barcelona-home-2023-24"]
+kits = client.get_kits_bulk(slugs)
+# Returns reduced response format for 2-30 kits
+```
+
+<Note>
+Bulk endpoint supports 2-30 slugs per request. Requests with fewer than 2 or more than 30 slugs will be rejected or truncated.
+</Note>
+
+### User Collection Scraping
+
+Import your entire collection from Football Kit Archive:
+
+```python
+# Queue scraping task
+client.scrape_user_collection(userid=12345)
+# Returns: {"status": "queued"}
+
+# Check progress
+collection = client.get_user_collection(
+    userid=12345,
+    page=1,
+    page_size=20
+)
+```
+
+This asynchronous operation:
+1. Scrapes your Football Kit Archive collection
+2. Processes each kit through FKAPI
+3. Creates corresponding items in FootyCollect
+4. Downloads and optimizes kit images
+
+### Alternative Search Methods
+
+If FKAPI is unavailable, the client falls back to alternative methods:
+
+```python
+# Direct brand search
+brands = client.search_brands(query="Nike")
+
+# If FKAPI unavailable, searches kits and extracts brands
+if result is None:
+    kits = self.search_kits(query)
+    brands = {}
+    for kit in kits:
+        brand = kit.get("brand")
+        if brand:
+            brands[brand["name"]] = brand
+    return list(brands.values())
+```
+
+## Error Handling & Resilience
+
+### Circuit Breaker Pattern
+
+Prevents overwhelming a failing FKAPI service:
+
+```python
+class CircuitBreaker:
+    def __init__(self, failure_threshold: int = 5, timeout: int = 60):
+        self.failure_threshold = failure_threshold
+        self.timeout = timeout
+        self.state = "closed"  # closed, open, half_open
+    
+    def record_failure(self):
+        self.failure_count += 1
+        if self.failure_count >= self.failure_threshold:
+            self.state = "open"
+            # Block requests for 60 seconds
+```
+
+**States:**
+- **Closed**: Normal operation, all requests allowed
+- **Open**: Service failing, requests blocked for timeout period
+- **Half-Open**: Testing if service recovered
+
+### Retry with Exponential Backoff
+
+```python
+for attempt in range(self.max_retries):
+    if attempt > 0:
+        wait_time = 2 ** attempt  # 2s, 4s, 8s
+        time.sleep(wait_time)
+    
+    response = requests.get(url, timeout=60)
+    if response.status_code == 200:
+        return response.json()
+```
+
+### Stale Cache Fallback
+
+If FKAPI is unavailable, FootyCollect serves stale cached data:
+
+```python
+if not self.circuit_breaker.allow_request():
+    # Serve stale cache if available
+    return cache.get(cache_key)
+```
+
+<Warning>
+When FKAPI is completely unavailable and cache is empty, you'll need to enter item details manually. The system gracefully degrades to manual entry mode.
+</Warning>
+
+## Benefits of FKAPI Integration
+
+<CardGroup cols={2}>
+  <Card title="Time Savings" icon="clock">
+    Automatically populate 10+ fields with a single kit selection
+  </Card>
+  <Card title="Data Accuracy" icon="check">
+    Official data from Football Kit Archive ensures correct details
+  </Card>
+  <Card title="Consistency" icon="equals">
+    Standardized club names, brands, and competitions across all items
+  </Card>
+  <Card title="Rich Metadata" icon="database">
+    Access to competitions, design patterns, and color information
+  </Card>
+  <Card title="Logo Downloads" icon="image">
+    Automatic download of club and brand logos
+  </Card>
+  <Card title="Bulk Import" icon="download">
+    Import entire collections from Football Kit Archive
+  </Card>
+</CardGroup>
+
+## API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/clubs/search` | GET | Search clubs by keyword |
+| `/api/seasons` | GET | Get seasons for a club |
+| `/api/clubs/{id}/kits` | GET | Get kits for club/season |
+| `/api/kits/{id}` | GET | Get kit details |
+| `/api/kits/search` | GET | Search kits by keyword |
+| `/api/kits/bulk` | GET | Get multiple kits by slugs |
+| `/api/brands/search` | GET | Search brands |
+| `/api/competitions/search` | GET | Search competitions |
+| `/api/user-collection/{id}` | GET | Get user collection |
+| `/api/user-collection/{id}/scrape` | POST | Start collection import |
+
+## Running FKAPI Locally
+
+To enable FKAPI integration in development:
+
+1. Clone the FKAPI repository:
+   ```bash
+   git clone https://github.com/sunr4y/fkapi.git
+   cd fkapi
+   ```
+
+2. Follow FKAPI setup instructions to start the service
+
+3. Configure FootyCollect environment:
+   ```bash
+   FKA_API_IP=localhost:8000
+   API_KEY=your_dev_api_key
+   ```
+
+4. Restart FootyCollect to enable integration
+
+<Info>
+For production deployments, run FKAPI as a separate service and configure the `FKA_API_IP` to point to your FKAPI server.
+</Info>

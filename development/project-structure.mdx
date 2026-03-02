@@ -1,0 +1,226 @@
+---
+title: Project Structure
+description: Understanding the FootyCollect codebase organization
+---
+
+FootyCollect follows a modular Django project structure with clear separation of concerns. This guide explains the organization and purpose of each major directory.
+
+## Directory Overview
+
+```
+footycollect/
+├── config/              # Django settings and configuration
+│   ├── settings/        # Environment-specific settings
+│   ├── celery_app.py   # Celery configuration
+│   └── checks.py        # Production validation checks
+├── footycollect/       # Main application code
+│   ├── api/             # API client for external services (FKAPI)
+│   ├── collection/     # Collection app (items, photos, etc.)
+│   ├── core/            # Core models (clubs, seasons, etc.)
+│   ├── users/           # User management
+│   ├── static/          # Static assets (CSS, JS, images)
+│   └── templates/       # Django templates
+├── deploy/              # Production deployment files
+├── docs/                # Architecture and Sphinx documentation
+├── compose/             # Docker Compose service definitions
+├── requirements/        # Python dependencies
+├── tests/               # Project-wide test fixtures
+├── locale/              # Internationalization files
+└── media/               # User-uploaded media files
+```
+
+## Key Directories
+
+### config/
+
+Contains Django project settings and configuration.
+
+<AccordionGroup>
+  <Accordion title="config/settings/">
+    Environment-specific settings modules:
+    - `base.py` - Shared settings for all environments
+    - `local.py` - Development settings
+    - `production.py` - Production settings
+    - `test.py` - Test environment settings
+  </Accordion>
+  
+  <Accordion title="config/celery_app.py">
+    Celery application initialization and configuration. Autodiscovers tasks from all registered Django apps.
+  </Accordion>
+  
+  <Accordion title="config/checks.py">
+    Production readiness validation checks. Run with `python manage.py check --deploy`.
+  </Accordion>
+</AccordionGroup>
+
+### footycollect/
+
+The main application package containing all Django apps.
+
+#### footycollect/collection/
+
+The core collection app managing items and photos:
+
+```
+collection/
+├── models.py            # BaseItem, Jersey, Shorts, Photo models
+├── views/               # View classes and mixins
+│   └── jersey/          # Jersey-specific views
+├── services/            # Business logic layer
+├── repositories/        # Data access layer
+├── management/          # Django management commands
+│   └── commands/
+├── templatetags/        # Custom template tags
+└── tests/               # Test suite
+```
+
+<Note>
+The collection app follows a **service layer pattern** - business logic lives in `services/`, not in views or models. See the [Service Layer](/architecture/service-layer) documentation.
+</Note>
+
+#### footycollect/api/
+
+External API integration (FKAPI client) for the Football Kit Archive:
+
+- API client implementation
+- Request/response handling
+- Integration with collection services
+
+#### footycollect/core/
+
+Shared core models and utilities:
+
+- Club, Season, Competition models
+- Shared utilities and helpers
+- Common base classes
+
+#### footycollect/users/
+
+User management and authentication:
+
+- User model
+- Profile management
+- Authentication views
+
+### deploy/
+
+Production deployment configuration:
+
+- `env.example` - Environment variable template
+- Deployment scripts and configurations
+- Server setup documentation
+
+See the [Deployment Guide](https://github.com/sunr4y/FootyCollect/tree/main/deploy) for details.
+
+### compose/
+
+Docker Compose service definitions:
+
+<CodeGroup>
+```yaml compose/local/
+Development services:
+- Django
+- PostgreSQL
+- Redis
+- Celery worker
+- Celery beat
+- Mailpit (email testing)
+```
+
+```yaml compose/production/
+Production services:
+- Django (Gunicorn)
+- PostgreSQL
+- Redis
+- Celery worker
+- Celery beat
+- Nginx
+- Traefik (reverse proxy)
+```
+</CodeGroup>
+
+## Test Organization
+
+Tests are organized by app within each app's `tests/` directory:
+
+```
+footycollect/collection/tests/
+├── test_models.py           # Model tests
+├── test_views/              # View tests (organized by view type)
+├── test_services.py         # Service layer tests
+├── test_forms.py            # Form validation tests
+├── test_repositories.py     # Repository layer tests
+├── test_tasks.py            # Celery task tests
+└── test_e2e_*.py           # End-to-end tests
+```
+
+<Tip>
+All tests run from the project root with `pytest`. Configuration is in `pytest.ini` and `pyproject.toml`.
+</Tip>
+
+## Multi-Table Inheritance Structure
+
+FootyCollect uses Django's Multi-Table Inheritance (MTI) for item types:
+
+```python
+BaseItem (base class)
+├── Jersey (specific item type)
+├── Shorts (specific item type)
+├── Outerwear (specific item type)
+└── Tracksuit (specific item type)
+```
+
+Each item type:
+- Inherits common fields from `BaseItem`
+- Has a one-to-one relationship with `BaseItem`
+- Adds type-specific fields and behavior
+
+See [Multi-Table Inheritance ADR](https://github.com/sunr4y/FootyCollect/blob/main/docs/ARCHITECTURE/decisions/0001-multi-table-inheritance.md) for the design rationale.
+
+## Finding Your Way Around
+
+<Steps>
+  <Step title="Models">
+    Look in `footycollect/<app>/models.py` for data models
+  </Step>
+  
+  <Step title="Business Logic">
+    Check `footycollect/<app>/services/` for business logic (not in views!)
+  </Step>
+  
+  <Step title="Views">
+    Find view classes in `footycollect/<app>/views/`
+  </Step>
+  
+  <Step title="Forms">
+    Forms are in `footycollect/<app>/forms.py`
+  </Step>
+  
+  <Step title="Templates">
+    Templates are in `footycollect/templates/<app>/`
+  </Step>
+  
+  <Step title="Background Tasks">
+    Celery tasks are in `footycollect/<app>/tasks.py`
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Running Tests" icon="flask" href="/development/running-tests">
+    Learn how to run the test suite
+  </Card>
+  
+  <Card title="Code Quality" icon="code" href="/development/code-quality">
+    Code quality tools and standards
+  </Card>
+  
+  <Card title="Celery Tasks" icon="gears" href="/development/celery-tasks">
+    Background task processing
+  </Card>
+  
+  <Card title="Architecture" icon="sitemap" href="/architecture/overview">
+    Learn about the architecture
+  </Card>
+</CardGroup>

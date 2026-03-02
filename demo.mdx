@@ -1,0 +1,197 @@
+---
+title: Live demo
+description: Try FootyCollect without installing anything
+---
+
+Explore FootyCollect's features without any installation by visiting our live demo environment.
+
+## Access the demo
+
+<Card title="FootyCollect Demo" icon="globe" href="https://footycollect-demo.sunr4y.dev/">
+  Try the live demo at **https://footycollect-demo.sunr4y.dev/**
+</Card>
+
+## Demo features
+
+The demo environment allows you to:
+
+- Browse existing collection items
+- Create new items (jerseys, shorts, outerwear, etc.)
+- Upload and manage photos
+- Search and filter the collection
+- Test the FKAPI integration for adding kits from the Football Kit Archive
+- Explore user profiles and privacy settings
+- Edit and delete items
+- Try out tags and organization features
+
+## Demo credentials
+
+### Authentication
+
+<Warning>
+  User registration is **disabled** in the demo environment. You must use the pre-configured demo account.
+</Warning>
+
+The demo provides a pre-configured user account for testing:
+
+- **Auto-login**: The demo may automatically log you in when you visit
+- **Manual login**: If needed, use the demo credentials displayed on the login page
+
+<Note>
+  Demo credentials are shown on the site's login page. Look for the demo account information banner.
+</Note>
+
+## Database reset policy
+
+<Warning>
+  The database is **restored from a snapshot every 3 hours**. All changes you make will be lost after the next reset.
+</Warning>
+
+This means:
+
+- **Safe to experiment**: Create, edit, and delete items freely
+- **No permanent changes**: Your changes won't persist after the reset
+- **Fresh demo data**: The demo regularly returns to a clean state with sample collections
+
+### What resets?
+
+- All user-created items
+- Uploaded photos
+- Tags and custom data
+- Any edits to existing items
+
+### What doesn't reset?
+
+- The demo user account
+- Sample collection items (restored from snapshot)
+- Core data (clubs, seasons, competitions)
+
+## Limitations
+
+### Registration disabled
+
+You cannot create new user accounts in the demo. This is intentional to maintain demo stability and prevent abuse.
+
+### API access
+
+The RESTful API is available in the demo:
+
+- **Swagger UI**: `/api/docs/` (development only, may not be enabled)
+- **OpenAPI Schema**: `/api/schema/`
+- **API Endpoints**: `/api/` for internal APIs
+
+<Note>
+  API endpoints require authentication. Use the demo account credentials to obtain an auth token.
+</Note>
+
+### FKAPI integration
+
+The Football Kit Archive integration may be available in the demo:
+
+- Search for kits by club, season, and competition
+- Auto-fill item details from the archive
+- Test the kit lookup workflow
+
+<Warning>
+  FKAPI availability depends on the demo configuration. If FKAPI is not running, you can still manually enter item details.
+</Warning>
+
+## Testing workflows
+
+### Create a new jersey
+
+<Steps>
+  <Step title="Navigate to 'Add Item'">
+    Click the "Add Item" button in the navigation menu.
+  </Step>
+  
+  <Step title="Select 'Jersey'">
+    Choose Jersey as the item type.
+  </Step>
+  
+  <Step title="Search with FKAPI (if available)">
+    Use the FKAPI search to find a kit:
+    - Enter club name (e.g., "Real Madrid")
+    - Select season (e.g., "2023-24")
+    - Choose kit type (Home, Away, Third)
+    
+    The form will auto-fill with kit details including colors, design, and competitions.
+  </Step>
+  
+  <Step title="Fill in details">
+    Complete the form:
+    - Select size (XS, S, M, L, XL, XXL)
+    - Add player name and number if desired
+    - Set condition (1-10 scale or detailed condition)
+    - Choose fan version or player version
+  </Step>
+  
+  <Step title="Upload photos">
+    Add photos of your item:
+    - Select up to 10 images
+    - First photo becomes the main image
+    - Photos are automatically optimized
+  </Step>
+  
+  <Step title="Save the item">
+    Click Save to add the item to the collection. It will appear in the feed and your profile.
+  </Step>
+</Steps>
+
+### Test photo management
+
+<Steps>
+  <Step title="View an item">
+    Click on any item from the collection feed to view its details.
+  </Step>
+  
+  <Step title="Add more photos">
+    Click "Edit" and upload additional photos.
+  </Step>
+  
+  <Step title="Reorder photos">
+    Drag and drop photos to change their order. The first photo is always the main display image.
+  </Step>
+  
+  <Step title="View optimized images">
+    Photos are automatically converted to AVIF format for better performance. You'll see:
+    - Original format: JPEG/PNG
+    - Optimized format: AVIF (if supported by browser)
+    - Thumbnails: 100x100px for grid views
+  </Step>
+</Steps>
+
+### Explore the collection
+
+- **Browse the feed**: See all public items in chronological order
+- **Filter by club**: Click on a club name to see all items from that club
+- **Filter by season**: View items from specific seasons
+- **Search**: Use the search bar to find items by name, club, or player
+- **Tags**: Click tags to filter items by custom categories
+
+## After the demo
+
+Ready to set up your own instance?
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Install FootyCollect locally and start building your collection
+  </Card>
+  <Card title="Deployment" icon="server" href="/deployment/overview">
+    Deploy FootyCollect to production on a VPS or cloud platform
+  </Card>
+  <Card title="API reference" icon="code" href="/api/introduction">
+    Explore the complete RESTful API
+  </Card>
+  <Card title="GitHub" icon="github" href="https://github.com/sunr4y/FootyCollect">
+    View source code and contribute
+  </Card>
+</CardGroup>
+
+## Demo feedback
+
+If you encounter issues or have suggestions for the demo:
+
+- Open an issue on [GitHub](https://github.com/sunr4y/FootyCollect/issues)
+- Check the [documentation](https://github.com/sunr4y/FootyCollect/tree/main/docs) for more details
+- Review the [README](https://github.com/sunr4y/FootyCollect/blob/main/README.md) for project overview

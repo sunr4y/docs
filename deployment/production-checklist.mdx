@@ -1,0 +1,796 @@
+---
+title: Production Checklist
+description: Pre-deployment security and configuration checklist for FootyCollect
+---
+
+Complete this checklist before deploying FootyCollect to production. This ensures all security settings are configured and the application is production-ready.
+
+## Pre-Deployment Checklist
+
+Use this comprehensive checklist to verify your production deployment.
+
+### Django Configuration
+
+<Steps>
+  <Step title="DEBUG Disabled">
+    <Warning>
+      **Critical Security**: DEBUG=True exposes sensitive information including settings, environment variables, and stack traces.
+    </Warning>
+    
+    ```bash .env
+    DJANGO_DEBUG=False
+    ```
+    
+    Verify:
+    ```bash
+    grep "DJANGO_DEBUG" .env
+    # Should show: DJANGO_DEBUG=False
+    ```
+    
+    This is validated by config/checks.py:20.
+  </Step>
+  
+  <Step title="Secure SECRET_KEY">
+    Generate a unique, random SECRET_KEY:
+    
+    ```bash
+    python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'
+    ```
+    
+    Requirements:
+    - Minimum 50 characters (config/checks.py:17)
+    - Unique per environment
+    - Never use default value
+    - Never commit to version control
+    
+    ```bash .env
+    DJANGO_SECRET_KEY=django-insecure-abc123...  # BAD
+    DJANGO_SECRET_KEY=u8v#^9xzq...50+chars...     # GOOD
+    ```
+  </Step>
+  
+  <Step title="ALLOWED_HOSTS Configured">
+    Set specific domain names (no wildcards):
+    
+    ```bash .env
+    DJANGO_ALLOWED_HOSTS=yourdomain.com,www.yourdomain.com
+    ```
+    
+    Do NOT use:
+    ```bash
+    DJANGO_ALLOWED_HOSTS=*  # Insecure!
+    ```
+    
+    Validated by config/checks.py:300.
+  </Step>
+  
+  <Step title="Admin URL Changed">
+    Change from default `/admin/` to prevent automated attacks:
+    
+    ```bash .env
+    DJANGO_ADMIN_URL=secret-admin-path/
+    ```
+    
+    Access admin at: `https://yourdomain.com/secret-admin-path/`
+  </Step>
+</Steps>
+
+### SSL/TLS Security
+
+<Steps>
+  <Step title="SSL Certificate Installed">
+    Verify SSL certificate is active:
+    
+    ```bash
+    # Test HTTPS
+    curl -I https://yourdomain.com
+    
+    # Check certificate
+    openssl s_client -connect yourdomain.com:443 -servername yourdomain.com
+    ```
+    
+    Should show valid certificate from Let's Encrypt or your CA.
+  </Step>
+  
+  <Step title="HTTPS Redirect Enabled">
+    Force all traffic to HTTPS:
+    
+    ```bash .env
+    DJANGO_SECURE_SSL_REDIRECT=True
+    ```
+    
+    Test:
+    ```bash
+    curl -I http://yourdomain.com
+    # Should return 301/302 redirect to https://
+    ```
+  </Step>
+  
+  <Step title="HSTS Configured">
+    Enable HTTP Strict Transport Security:
+    
+    ```bash .env
+    DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS=True
+    DJANGO_SECURE_HSTS_PRELOAD=True
+    ```
+    
+    Verify header:
+    ```bash
+    curl -I https://yourdomain.com | grep -i strict-transport
+    # Should show: Strict-Transport-Security: max-age=31536000; includeSubDomains
+    ```
+  </Step>
+  
+  <Step title="Secure Cookies">
+    Configure cookie security:
+    
+    ```bash .env
+    DJANGO_SESSION_COOKIE_SAMESITE=Lax
+    DJANGO_CSRF_COOKIE_SAMESITE=Lax
+    ```
+    
+    Validated by config/checks.py:334.
+  </Step>
+</Steps>
+
+### Database Security
+
+<Steps>
+  <Step title="Strong Database Password">
+    Use a strong password for PostgreSQL:
+    
+    ```bash
+    # Generate secure password
+    openssl rand -base64 32
+    ```
+    
+    Requirements:
+    - Minimum 16 characters
+    - Mix of letters, numbers, symbols
+    - Unique per environment
+    
+    ```bash .env
+    DATABASE_URL=postgresql://footycollect:strong-password-here@localhost:5432/footycollect_db
+    ```
+  </Step>
+  
+  <Step title="Database Connectivity">
+    Test database connection:
+    
+    ```bash
+    # Bare metal
+    sudo -u postgres psql -d footycollect_db -U footycollect -c "SELECT 1;"
+    
+    # Docker
+    docker compose -f docker-compose.production.yml exec postgres psql -U footycollect -d footycollect_db -c "SELECT 1;"
+    ```
+    
+    Validated automatically by config/checks.py:127.
+  </Step>
+  
+  <Step title="Database Backups Configured">
+    Verify backups are working:
+    
+    **Bare metal**:
+    ```bash
+    # Check backup directory
+    ls -lh /var/www/footycollect/backups/
+    
+    # Test manual backup
+    sudo -u postgres pg_dump footycollect_db > test_backup.sql
+    ```
+    
+    **Docker**:
+    ```bash
+    # Test backup
+    docker compose -f docker-compose.production.yml exec postgres backup
+    
+    # List backups
+    docker compose -f docker-compose.production.yml exec postgres backups
+    ```
+  </Step>
+</Steps>
+
+### Redis Configuration
+
+<Steps>
+  <Step title="Redis Connectivity">
+    Test Redis connection:
+    
+    ```bash
+    # Bare metal
+    redis-cli ping
+    # Should return: PONG
+    
+    # Docker
+    docker compose -f docker-compose.production.yml exec redis redis-cli ping
+    ```
+    
+    Validated by config/checks.py:151.
+  </Step>
+  
+  <Step title="Redis Password (Optional but Recommended)">
+    For additional security, set Redis password:
+    
+    ```bash
+    # /etc/redis/redis.conf
+    requirepass your-redis-password
+    ```
+    
+    Update connection string:
+    ```bash .env
+    REDIS_URL=redis://:your-redis-password@localhost:6379/0
+    ```
+  </Step>
+</Steps>
+
+### Storage Configuration
+
+<Steps>
+  <Step title="Storage Credentials Configured">
+    Verify S3/R2 credentials are set:
+    
+    ```bash
+    # Check storage backend
+    grep STORAGE_BACKEND .env
+    
+    # For AWS S3
+    grep -E "DJANGO_AWS_" .env
+    
+    # For Cloudflare R2
+    grep -E "CLOUDFLARE_" .env
+    ```
+    
+    Validated by config/checks.py:268.
+  </Step>
+  
+  <Step title="Static Files Collected">
+    Test collectstatic uploads to S3/R2:
+    
+    ```bash
+    # Verify configuration
+    python manage.py verify_staticfiles
+    
+    # Collect static files
+    python manage.py collectstatic --noinput
+    
+    # Check files are accessible
+    curl -I https://your-bucket.s3.amazonaws.com/static/css/styles.css
+    ```
+  </Step>
+  
+  <Step title="CORS Configured (R2 Only)">
+    If using Cloudflare R2 with custom domain, configure CORS:
+    
+    ```bash
+    npx wrangler r2 bucket cors set your-bucket-name --file deploy/r2-cors-wrangler.json
+    ```
+    
+    Test fonts/static assets load without CORS errors in browser console.
+  </Step>
+</Steps>
+
+### Email Configuration
+
+<Steps>
+  <Step title="SendGrid API Key Configured">
+    ```bash .env
+    SENDGRID_API_KEY=SG.xxxxxxxxxxxx
+    DJANGO_DEFAULT_FROM_EMAIL=FootyCollect <noreply@yourdomain.com>
+    ```
+  </Step>
+  
+  <Step title="Sender Domain Verified">
+    Verify domain in SendGrid:
+    1. SendGrid > Settings > Sender Authentication
+    2. Verify domain is authenticated
+    3. DNS records are configured
+  </Step>
+  
+  <Step title="Test Email Delivery">
+    ```bash
+    # Django shell
+    python manage.py shell
+    ```
+    
+    ```python
+    from django.core.mail import send_mail
+    
+    send_mail(
+        'Test Email',
+        'This is a test email from FootyCollect.',
+        'noreply@yourdomain.com',
+        ['your-email@example.com'],
+        fail_silently=False,
+    )
+    ```
+    
+    Check inbox for test email.
+  </Step>
+</Steps>
+
+### Error Tracking
+
+<Steps>
+  <Step title="Sentry DSN Configured">
+    ```bash .env
+    SENTRY_DSN=https://xxxxx@oxxxxx.ingest.sentry.io/xxxxx
+    SENTRY_ENVIRONMENT=production
+    ```
+  </Step>
+  
+  <Step title="Test Sentry Integration">
+    Trigger a test error:
+    
+    ```bash
+    python manage.py shell
+    ```
+    
+    ```python
+    from sentry_sdk import capture_message
+    capture_message("FootyCollect production test")
+    ```
+    
+    Verify event appears in Sentry dashboard.
+  </Step>
+</Steps>
+
+### Security Headers
+
+<Steps>
+  <Step title="Content Security Policy">
+    Configure CSP to allow required sources:
+    
+    ```bash .env
+    DJANGO_CSP_ENABLED=True
+    DJANGO_CSP_IMG_SRC='self', data:, blob:, https://www.gravatar.com, https://cdn.footballkitarchive.com, https://your-bucket.s3.amazonaws.com
+    ```
+    
+    Test for CSP violations in browser console.
+  </Step>
+  
+  <Step title="Verify Security Headers">
+    Check all security headers are present:
+    
+    ```bash
+    curl -I https://yourdomain.com
+    ```
+    
+    Should include:
+    - `Strict-Transport-Security`
+    - `X-Frame-Options: DENY`
+    - `X-Content-Type-Options: nosniff`
+    - `Referrer-Policy: strict-origin-when-cross-origin`
+    - `Content-Security-Policy`
+  </Step>
+  
+  <Step title="Test with Security Headers Analyzer">
+    Use online tools to verify headers:
+    - [SecurityHeaders.com](https://securityheaders.com/)
+    - [Mozilla Observatory](https://observatory.mozilla.org/)
+    
+    Aim for A or A+ grade.
+  </Step>
+</Steps>
+
+### Firewall and Network
+
+<Steps>
+  <Step title="Firewall Configured">
+    **Bare metal**:
+    ```bash
+    # Check UFW status
+    sudo ufw status verbose
+    
+    # Should show:
+    # - 22/tcp (SSH) ALLOW
+    # - 80/tcp (HTTP) ALLOW
+    # - 443/tcp (HTTPS) ALLOW
+    # - Default: deny incoming, allow outgoing
+    ```
+    
+    **Docker**:
+    ```bash
+    # Verify only required ports exposed
+    docker compose -f docker-compose.production.yml ps
+    # Should show 80:80, 443:443
+    ```
+  </Step>
+  
+  <Step title="Fail2ban Enabled (Bare Metal)">
+    ```bash
+    # Check fail2ban is active
+    sudo systemctl status fail2ban
+    
+    # Check SSH jail
+    sudo fail2ban-client status sshd
+    ```
+  </Step>
+  
+  <Step title="SSH Security">
+    Harden SSH access:
+    
+    ```bash /etc/ssh/sshd_config
+    PermitRootLogin no
+    PasswordAuthentication no  # Use SSH keys only
+    ```
+    
+    ```bash
+    sudo systemctl restart sshd
+    ```
+  </Step>
+</Steps>
+
+### Service Health
+
+<Steps>
+  <Step title="All Services Running">
+    **Bare metal**:
+    ```bash
+    sudo systemctl status gunicorn
+    sudo systemctl status nginx
+    sudo systemctl status postgresql
+    sudo systemctl status redis
+    ```
+    
+    **Docker**:
+    ```bash
+    docker compose -f docker-compose.production.yml ps
+    # All services should show "Up"
+    ```
+  </Step>
+  
+  <Step title="Health Endpoints">
+    Test application health:
+    
+    ```bash
+    # Basic health check
+    curl https://yourdomain.com/health/
+    # Should return: {"status": "ok"}
+    
+    # Readiness check (includes DB)
+    curl https://yourdomain.com/ready/
+    # Should return: {"status": "ready"}
+    ```
+  </Step>
+  
+  <Step title="Admin Access">
+    Verify admin panel access:
+    
+    ```bash
+    # Visit admin URL
+    curl -I https://yourdomain.com/your-admin-url/
+    # Should return 200 OK or 302 redirect to login
+    ```
+    
+    Log in with superuser credentials.
+  </Step>
+</Steps>
+
+### Django Deployment Checks
+
+<Steps>
+  <Step title="Run Django Checks">
+    Run comprehensive deployment checks:
+    
+    ```bash
+    python manage.py check --deploy
+    ```
+    
+    This validates (config/checks.py):
+    - ✓ DEBUG disabled (checks.py:20)
+    - ✓ SECRET_KEY secure (checks.py:40)
+    - ✓ Required environment variables (checks.py:83)
+    - ✓ Database connectivity (checks.py:127)
+    - ✓ Redis connectivity (checks.py:151)
+    - ✓ Storage credentials (checks.py:268)
+    - ✓ ALLOWED_HOSTS configured (checks.py:300)
+    - ✓ SSL/HTTPS settings (checks.py:334)
+    
+    **All checks must pass** before production deployment.
+  </Step>
+  
+  <Step title="Address Warnings">
+    Fix any warnings reported by checks:
+    
+    ```bash
+    python manage.py check --deploy 2>&1 | grep -E "WARNING|ERROR"
+    ```
+    
+    Common warnings:
+    - Missing SENTRY_DSN (recommended)
+    - ALLOWED_HOSTS contains wildcard
+    - Missing storage credentials
+  </Step>
+</Steps>
+
+## Production Deployment Checklist
+
+Print and complete this checklist:
+
+### Django Configuration
+- [ ] `DEBUG=False` set
+- [ ] Unique `SECRET_KEY` generated (50+ characters)
+- [ ] `ALLOWED_HOSTS` configured (no wildcards)
+- [ ] Admin URL changed from default
+- [ ] `python manage.py check --deploy` passes
+
+### Security
+- [ ] SSL certificate installed and valid
+- [ ] HTTPS redirect enabled (`SECURE_SSL_REDIRECT=True`)
+- [ ] HSTS configured
+- [ ] Secure cookies configured
+- [ ] Content Security Policy enabled
+- [ ] Security headers verified
+- [ ] Firewall configured (UFW or cloud firewall)
+- [ ] Fail2ban enabled (bare metal)
+- [ ] SSH hardened (no root, key-based auth)
+
+### Database
+- [ ] Strong database password set
+- [ ] Database connectivity verified
+- [ ] Database backups configured
+- [ ] Backup restoration tested
+
+### Redis
+- [ ] Redis connectivity verified
+- [ ] Redis password set (recommended)
+
+### Storage
+- [ ] Storage backend configured (S3/R2)
+- [ ] Storage credentials validated
+- [ ] `collectstatic` runs successfully
+- [ ] Static files accessible via CDN/bucket URL
+- [ ] CORS configured (R2 only)
+
+### Email
+- [ ] SendGrid API key configured
+- [ ] Sender domain verified in SendGrid
+- [ ] Test email sent successfully
+
+### Monitoring
+- [ ] Sentry DSN configured
+- [ ] Sentry integration tested
+- [ ] Error alerts configured in Sentry
+
+### Services
+- [ ] All services running and enabled
+- [ ] Health endpoints responding
+- [ ] Admin panel accessible
+- [ ] Logs are being written
+- [ ] Log rotation configured
+
+### Performance
+- [ ] Gunicorn workers configured appropriately
+- [ ] Redis caching enabled
+- [ ] Compression enabled
+- [ ] Static files served from CDN
+
+### Documentation
+- [ ] Environment variables documented
+- [ ] Deployment process documented
+- [ ] Recovery procedures documented
+- [ ] Team has access to credentials (securely)
+
+## Post-Deployment Monitoring
+
+After deployment, monitor for:
+
+### First 24 Hours
+
+<AccordionGroup>
+  <Accordion title="Check Error Rates">
+    Monitor Sentry for errors:
+    - Check error frequency
+    - Review stack traces
+    - Verify no critical errors
+  </Accordion>
+  
+  <Accordion title="Monitor Performance">
+    ```bash
+    # Application response time
+    curl -w "@curl-format.txt" -o /dev/null -s https://yourdomain.com/
+    
+    # Database performance
+    sudo -u postgres psql -d footycollect_db -c "SELECT * FROM pg_stat_activity;"
+    
+    # Redis memory usage
+    redis-cli info memory
+    ```
+  </Accordion>
+  
+  <Accordion title="Review Logs">
+    ```bash
+    # Application logs
+    sudo journalctl -u gunicorn --since "1 hour ago"
+    
+    # Nginx access logs
+    sudo tail -100 /var/log/nginx/footycollect_access.log
+    
+    # Check for errors
+    sudo tail -100 /var/log/nginx/footycollect_error.log
+    ```
+  </Accordion>
+  
+  <Accordion title="Verify Backups">
+    Ensure backups are running:
+    
+    ```bash
+    # Check backup files
+    ls -lh /var/www/footycollect/backups/
+    
+    # Verify backup size is reasonable
+    du -h /var/www/footycollect/backups/
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### First Week
+
+- Monitor disk space usage
+- Review user registration and activity
+- Check email delivery success rate
+- Verify SSL certificate auto-renewal is configured
+- Review Sentry performance metrics
+- Test database restore procedure
+
+### Ongoing
+
+- Weekly log reviews
+- Monthly security updates
+- Quarterly credential rotation
+- Regular backup restoration tests
+- Performance monitoring and optimization
+
+## Troubleshooting Checklist Failures
+
+<AccordionGroup>
+  <Accordion title="Django Checks Failing">
+    ```bash
+    # View detailed check output
+    python manage.py check --deploy --verbosity 2
+    
+    # Check specific settings
+    python manage.py shell
+    >>> from django.conf import settings
+    >>> settings.DEBUG
+    False
+    >>> settings.SECRET_KEY[:10]
+    'randomXXXX'
+    ```
+  </Accordion>
+  
+  <Accordion title="Health Endpoints Not Responding">
+    ```bash
+    # Check Gunicorn is running
+    sudo systemctl status gunicorn
+    
+    # Check Gunicorn logs
+    sudo journalctl -u gunicorn -n 50
+    
+    # Test directly (bypass Nginx)
+    curl http://localhost:8000/health/
+    ```
+  </Accordion>
+  
+  <Accordion title="Static Files 404">
+    ```bash
+    # Verify collectstatic ran
+    python manage.py collectstatic --dry-run
+    
+    # Check storage configuration
+    python manage.py verify_staticfiles
+    
+    # Test S3/R2 connectivity
+    python manage.py check --deploy | grep -i storage
+    ```
+  </Accordion>
+  
+  <Accordion title="Database Connection Errors">
+    ```bash
+    # Test PostgreSQL
+    sudo -u postgres psql -d footycollect_db -U footycollect
+    
+    # Check DATABASE_URL format
+    echo $DATABASE_URL
+    
+    # Verify pg_hba.conf allows connections
+    sudo cat /etc/postgresql/*/main/pg_hba.conf
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Final Verification
+
+Before announcing your deployment:
+
+<Steps>
+  <Step title="Complete User Journey">
+    Test the complete user experience:
+    1. Visit homepage via HTTPS
+    2. Register new account
+    3. Verify email received
+    4. Log in
+    5. Create an item
+    6. Upload a photo
+    7. View collection
+    8. Test search/filter
+    9. Log out
+  </Step>
+  
+  <Step title="Security Scan">
+    Run security scanners:
+    - [SSL Labs](https://www.ssllabs.com/ssltest/) - A or A+ grade
+    - [SecurityHeaders.com](https://securityheaders.com/) - A or A+ grade
+    - [Mozilla Observatory](https://observatory.mozilla.org/) - A or A+ grade
+  </Step>
+  
+  <Step title="Load Test (Optional)">
+    Basic load testing:
+    
+    ```bash
+    # Install Apache Bench
+    sudo apt-get install apache2-utils
+    
+    # Test 100 requests, 10 concurrent
+    ab -n 100 -c 10 https://yourdomain.com/
+    ```
+    
+    Review response times and error rates.
+  </Step>
+</Steps>
+
+<Note>
+  **Congratulations!** If all checklist items are complete and verified, your FootyCollect deployment is production-ready.
+</Note>
+
+## Quick Reference Commands
+
+```bash
+# Run all deployment checks
+python manage.py check --deploy
+
+# Test health endpoints
+curl https://yourdomain.com/health/
+curl https://yourdomain.com/ready/
+
+# Verify static files
+python manage.py verify_staticfiles
+
+# Check services (bare metal)
+sudo systemctl status gunicorn nginx postgresql redis
+
+# Check services (Docker)
+docker compose -f docker-compose.production.yml ps
+
+# View application logs (bare metal)
+sudo journalctl -u gunicorn -f
+
+# View application logs (Docker)
+docker compose -f docker-compose.production.yml logs -f django
+
+# Database backup (bare metal)
+sudo -u postgres pg_dump footycollect_db > backup.sql
+
+# Database backup (Docker)
+docker compose -f docker-compose.production.yml exec postgres backup
+```
+
+## Next Steps
+
+After completing the checklist:
+
+<CardGroup cols={2}>
+  <Card title="Monitoring Setup" icon="chart-line">
+    Configure ongoing monitoring with Sentry, log aggregation, and uptime monitoring
+  </Card>
+  <Card title="Backup Strategy" icon="database">
+    Implement automated backup rotation and test restoration procedures
+  </Card>
+  <Card title="Performance Tuning" icon="gauge-high">
+    Optimize Gunicorn workers, database queries, and caching strategies
+  </Card>
+  <Card title="Scaling" icon="arrows-to-circle">
+    Plan for horizontal scaling with load balancers and multiple application servers
+  </Card>
+</CardGroup>

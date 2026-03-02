@@ -1,0 +1,971 @@
+---
+title: Bare Metal VPS Deployment
+description: Deploy FootyCollect on Ubuntu/Debian servers with Nginx and Gunicorn
+---
+
+Deploy FootyCollect directly on an Ubuntu or Debian VPS using Nginx as a reverse proxy, Gunicorn as the application server, and systemd for service management.
+
+## Overview
+
+Bare metal deployment installs FootyCollect directly on your server without containerization:
+
+- **Nginx**: Reverse proxy and SSL termination
+- **Gunicorn**: WSGI application server
+- **Systemd**: Service management and process supervision
+- **PostgreSQL**: Database server
+- **Redis**: Cache and Celery broker
+- **Supervisor**: Celery worker management (optional)
+
+<Note>
+  This guide is based on the deployment scripts in deploy/ including setup.sh, deploy.sh, nginx.conf, and gunicorn.service.
+</Note>
+
+## Prerequisites
+
+- Ubuntu 20.04+ or Debian 11+ server
+- Root or sudo access
+- Domain name with DNS pointing to your server
+- Minimum 2GB RAM, 20GB disk space
+
+## Initial Server Setup
+
+### Automated Setup Script
+
+The repository includes an automated setup script (deploy/setup.sh:1) that configures your server:
+
+<Steps>
+  <Step title="Copy Setup Script">
+    ```bash
+    # From your local machine
+    scp deploy/setup.sh root@your-server-ip:/tmp/
+    ```
+  </Step>
+  
+  <Step title="SSH into Server">
+    ```bash
+    ssh root@your-server-ip
+    ```
+  </Step>
+  
+  <Step title="Run Setup Script">
+    ```bash
+    chmod +x /tmp/setup.sh
+    /tmp/setup.sh
+    ```
+    
+    This script will:
+    - Update system packages
+    - Install Python 3.12, PostgreSQL, Redis, Nginx
+    - Install certbot for SSL certificates
+    - Create `footycollect` user
+    - Configure PostgreSQL database
+    - Setup firewall (UFW)
+    - Configure fail2ban
+    - Setup log rotation
+  </Step>
+  
+  <Step title="Set Database Password">
+    <Warning>
+      The setup script creates a PostgreSQL user with a default password. Change it immediately:
+    </Warning>
+    
+    ```bash
+    sudo -u postgres psql -c "ALTER USER footycollect WITH PASSWORD 'your-secure-password';"
+    ```
+  </Step>
+</Steps>
+
+### Manual Setup (Alternative)
+
+If you prefer manual setup or need to customize the installation:
+
+<AccordionGroup>
+  <Accordion title="Update System">
+    ```bash
+    sudo apt-get update
+    sudo apt-get upgrade -y
+    ```
+  </Accordion>
+  
+  <Accordion title="Install Dependencies">
+    ```bash
+    sudo apt-get install -y \
+        python3.12 \
+        python3.12-venv \
+        python3-pip \
+        postgresql \
+        postgresql-contrib \
+        redis-server \
+        nginx \
+        certbot \
+        python3-certbot-nginx \
+        git \
+        curl \
+        build-essential \
+        libpq-dev \
+        python3-dev \
+        supervisor \
+        ufw \
+        fail2ban
+    ```
+  </Accordion>
+  
+  <Accordion title="Create Application User">
+    ```bash
+    sudo useradd -m -s /bin/bash footycollect
+    sudo mkdir -p /var/www/footycollect
+    sudo chown footycollect:footycollect /var/www/footycollect
+    ```
+  </Accordion>
+  
+  <Accordion title="Configure PostgreSQL">
+    ```bash
+    sudo -u postgres psql <<EOF
+    CREATE USER footycollect WITH PASSWORD 'your-secure-password';
+    CREATE DATABASE footycollect_db OWNER footycollect;
+    ALTER USER footycollect CREATEDB;
+    \q
+    EOF
+    ```
+  </Accordion>
+  
+  <Accordion title="Configure Redis">
+    ```bash
+    sudo sed -i 's/^supervised no/supervised systemd/' /etc/redis/redis.conf
+    sudo systemctl restart redis
+    sudo systemctl enable redis
+    ```
+  </Accordion>
+  
+  <Accordion title="Configure Firewall">
+    ```bash
+    sudo ufw default deny incoming
+    sudo ufw default allow outgoing
+    sudo ufw allow ssh
+    sudo ufw allow 'Nginx Full'
+    sudo ufw --force enable
+    ```
+  </Accordion>
+  
+  <Accordion title="Enable Fail2ban">
+    ```bash
+    sudo systemctl enable fail2ban
+    sudo systemctl start fail2ban
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Application Deployment
+
+### 1. Clone Repository
+
+Switch to the application user and clone the repository:
+
+```bash
+# Switch to application user
+sudo su - footycollect
+
+# Clone repository
+cd /var/www
+git clone https://github.com/sunr4y/FootyCollect.git footycollect
+cd footycollect
+```
+
+### 2. Setup Virtual Environment
+
+```bash
+# Create virtual environment with Python 3.12
+python3.12 -m venv venv
+
+# Activate virtual environment
+source venv/bin/activate
+
+# Upgrade pip
+pip install --upgrade pip
+
+# Install production dependencies
+pip install -r requirements/production.txt
+```
+
+<Note>
+  The virtual environment must be created with Python 3.12 as specified in setup.sh:25.
+</Note>
+
+### 3. Configure Environment Variables
+
+Copy the environment template and configure production settings:
+
+```bash
+# Copy template
+cp deploy/env.example .env
+
+# Edit environment variables
+nano .env
+```
+
+Required variables (from deploy/env.example:1):
+
+```bash .env
+# Django Settings
+DJANGO_SECRET_KEY=your-secret-key-here
+DJANGO_DEBUG=False
+DJANGO_ALLOWED_HOSTS=yourdomain.com,www.yourdomain.com
+DJANGO_ADMIN_URL=admin/
+
+# Database
+DATABASE_URL=postgresql://footycollect:your-db-password@localhost:5432/footycollect_db
+
+# Redis
+REDIS_URL=redis://localhost:6379/0
+
+# Security
+DJANGO_SECURE_SSL_REDIRECT=True
+DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS=True
+DJANGO_SECURE_HSTS_PRELOAD=True
+
+# Email (SendGrid)
+SENDGRID_API_KEY=your-sendgrid-api-key
+DJANGO_DEFAULT_FROM_EMAIL=noreply@yourdomain.com
+
+# Sentry (Error Tracking)
+SENTRY_DSN=your-sentry-dsn
+SENTRY_ENVIRONMENT=production
+
+# Storage Backend (aws or r2)
+STORAGE_BACKEND=aws
+DJANGO_AWS_ACCESS_KEY_ID=your-access-key
+DJANGO_AWS_SECRET_ACCESS_KEY=your-secret-key
+DJANGO_AWS_STORAGE_BUCKET_NAME=your-bucket
+DJANGO_AWS_S3_REGION_NAME=us-east-1
+```
+
+<Warning>
+  **Generate a secure SECRET_KEY**:
+  ```bash
+  python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'
+  ```
+</Warning>
+
+See the [environment setup guide](/deployment/environment-setup) for all available variables.
+
+### 4. Setup Database
+
+Run migrations and create a superuser:
+
+```bash
+# Activate virtual environment
+source venv/bin/activate
+
+# Run migrations
+python manage.py migrate
+
+# Create superuser
+python manage.py createsuperuser
+
+# Collect static files to S3/R2
+python manage.py collectstatic --noinput
+```
+
+### 5. Configure Nginx
+
+Copy and configure the Nginx reverse proxy (deploy/nginx.conf:1):
+
+```bash
+# Copy nginx configuration
+sudo cp deploy/nginx.conf /etc/nginx/sites-available/footycollect
+
+# Edit configuration - replace footycollect.pro with your domain
+sudo nano /etc/nginx/sites-available/footycollect
+```
+
+Update the domain in nginx.conf:
+
+```nginx
+# Replace all instances of:
+server_name footycollect.pro www.footycollect.pro;
+
+# With your domain:
+server_name yourdomain.com www.yourdomain.com;
+```
+
+Enable the site:
+
+```bash
+# Create symbolic link
+sudo ln -s /etc/nginx/sites-available/footycollect /etc/nginx/sites-enabled/
+
+# Remove default site
+sudo rm /etc/nginx/sites-enabled/default
+
+# Test configuration
+sudo nginx -t
+
+# Reload Nginx
+sudo systemctl reload nginx
+```
+
+<Note>
+  The Nginx configuration includes:
+  - HTTP to HTTPS redirect (nginx.conf:6)
+  - Security headers (nginx.conf:40)
+  - Gunicorn proxy on 127.0.0.1:8000 (nginx.conf:62)
+  - Static/media file serving (nginx.conf:77)
+  - Health check endpoints (nginx.conf:93)
+</Note>
+
+### 6. Setup SSL Certificates
+
+Obtain free SSL certificates from Let's Encrypt:
+
+```bash
+# Install certbot (if not already installed via setup.sh)
+sudo apt-get install certbot python3-certbot-nginx
+
+# Obtain certificate (replace with your domain)
+sudo certbot --nginx -d yourdomain.com -d www.yourdomain.com
+
+# Follow prompts and agree to terms
+```
+
+Certbot will:
+- Obtain SSL certificates
+- Update Nginx configuration automatically
+- Setup auto-renewal via systemd timer
+
+<Note>
+  Certificates auto-renew via certbot.timer. Verify: `sudo systemctl status certbot.timer`
+</Note>
+
+### 7. Configure Gunicorn Service
+
+Setup systemd service for Gunicorn (deploy/gunicorn.service:1):
+
+```bash
+# Copy service file
+sudo cp deploy/gunicorn.service /etc/systemd/system/
+
+# Edit if needed (verify paths match)
+sudo nano /etc/systemd/system/gunicorn.service
+```
+
+The service file configures:
+
+```ini
+[Unit]
+Description=FootyCollect Gunicorn daemon
+After=network.target postgresql.service redis.service
+
+[Service]
+User=www-data
+Group=www-data
+WorkingDirectory=/var/www/footycollect
+Environment="PATH=/var/www/footycollect/venv/bin"
+EnvironmentFile=/var/www/footycollect/.env
+ExecStart=/var/www/footycollect/venv/bin/gunicorn \
+    --access-logfile - \
+    --workers 3 \
+    --bind 127.0.0.1:8000 \
+    --timeout 120 \
+    --keep-alive 5 \
+    --max-requests 1000 \
+    --max-requests-jitter 50 \
+    --log-level info \
+    config.wsgi:application
+
+[Install]
+WantedBy=multi-user.target
+```
+
+<Note>
+  Gunicorn configuration (gunicorn.service:11):
+  - **Workers**: 3 (adjust based on CPU cores: `(2 * cores) + 1`)
+  - **Bind**: 127.0.0.1:8000 (Nginx proxies to this)
+  - **Timeout**: 120 seconds
+  - **Max requests**: 1000 (workers restart after to prevent memory leaks)
+</Note>
+
+Enable and start the service:
+
+```bash
+# Reload systemd
+sudo systemctl daemon-reload
+
+# Enable on boot
+sudo systemctl enable gunicorn
+
+# Start service
+sudo systemctl start gunicorn
+
+# Check status
+sudo systemctl status gunicorn
+```
+
+### 8. Verify Deployment
+
+Check that everything is running:
+
+```bash
+# Check Gunicorn logs
+sudo journalctl -u gunicorn -f
+
+# Check Nginx logs
+sudo tail -f /var/log/nginx/footycollect_error.log
+
+# Test health endpoints
+curl http://localhost:8000/health/
+curl http://localhost:8000/ready/
+
+# Test via Nginx (HTTPS)
+curl https://yourdomain.com/health/
+
+# Run Django deployment checks
+source /var/www/footycollect/venv/bin/activate
+python /var/www/footycollect/manage.py check --deploy
+```
+
+## Deployment Updates
+
+Use the automated deployment script (deploy/deploy.sh:1) for updates:
+
+```bash
+# SSH into server
+ssh footycollect@your-server-ip
+
+# Navigate to project
+cd /var/www/footycollect
+
+# Run deployment script
+./deploy/deploy.sh
+```
+
+The deployment script (deploy/deploy.sh:45) performs:
+
+<Steps>
+  <Step title="Backup Database">
+    Creates timestamped database backup (deploy.sh:52)
+  </Step>
+  
+  <Step title="Update Dependencies">
+    Installs updated Python packages (deploy.sh:66)
+  </Step>
+  
+  <Step title="Pull Latest Code">
+    Updates from git repository (deploy.sh:76)
+  </Step>
+  
+  <Step title="Run Migrations">
+    Applies database migrations (deploy.sh:83)
+  </Step>
+  
+  <Step title="Collect Static Files">
+    Uploads static files to S3/R2 (deploy.sh:87)
+  </Step>
+  
+  <Step title="Django Checks">
+    Runs deployment validation (deploy.sh:91)
+  </Step>
+  
+  <Step title="Restart Gunicorn">
+    Restarts application server (deploy.sh:98)
+  </Step>
+  
+  <Step title="Reload Nginx">
+    Reloads reverse proxy (deploy.sh:107)
+  </Step>
+  
+  <Step title="Health Check">
+    Verifies application is running (deploy.sh:132)
+  </Step>
+</Steps>
+
+<Note>
+  Database backups are stored in `/var/www/footycollect/backups/` and automatically rotated (keeps last 7 backups).
+</Note>
+
+## Service Management
+
+### Gunicorn Service
+
+```bash
+# Start
+sudo systemctl start gunicorn
+
+# Stop
+sudo systemctl stop gunicorn
+
+# Restart
+sudo systemctl restart gunicorn
+
+# Status
+sudo systemctl status gunicorn
+
+# Enable on boot
+sudo systemctl enable gunicorn
+
+# View logs
+sudo journalctl -u gunicorn -f
+sudo journalctl -u gunicorn -n 100
+```
+
+### Nginx Service
+
+```bash
+# Reload (no downtime)
+sudo systemctl reload nginx
+
+# Restart (brief downtime)
+sudo systemctl restart nginx
+
+# Test configuration
+sudo nginx -t
+
+# View logs
+sudo tail -f /var/log/nginx/footycollect_access.log
+sudo tail -f /var/log/nginx/footycollect_error.log
+```
+
+### PostgreSQL
+
+```bash
+# Status
+sudo systemctl status postgresql
+
+# Restart
+sudo systemctl restart postgresql
+
+# Connect to database
+sudo -u postgres psql -d footycollect_db -U footycollect
+```
+
+### Redis
+
+```bash
+# Status
+sudo systemctl status redis
+
+# Restart
+sudo systemctl restart redis
+
+# CLI
+redis-cli
+```
+
+## Celery Workers (Background Tasks)
+
+Setup Celery for background tasks (image downloads, scheduled tasks):
+
+### Using Supervisor
+
+Create supervisor configuration:
+
+```bash
+sudo nano /etc/supervisor/conf.d/footycollect-celery.conf
+```
+
+```ini
+[program:footycollect-celery]
+command=/var/www/footycollect/venv/bin/celery -A config.celery_app worker --loglevel=info
+directory=/var/www/footycollect
+user=footycollect
+numprocs=1
+stdout_logfile=/var/log/celery/worker.log
+stderr_logfile=/var/log/celery/worker.log
+autostart=true
+autorestart=true
+startsecs=10
+stopwaitsecs=600
+stopasgroup=true
+priority=998
+
+[program:footycollect-celery-beat]
+command=/var/www/footycollect/venv/bin/celery -A config.celery_app beat --loglevel=info
+directory=/var/www/footycollect
+user=footycollect
+numprocs=1
+stdout_logfile=/var/log/celery/beat.log
+stderr_logfile=/var/log/celery/beat.log
+autostart=true
+autorestart=true
+startsecs=10
+priority=999
+```
+
+Create log directory and start:
+
+```bash
+# Create log directory
+sudo mkdir -p /var/log/celery
+sudo chown footycollect:footycollect /var/log/celery
+
+# Reload supervisor
+sudo supervisorctl reread
+sudo supervisorctl update
+
+# Start workers
+sudo supervisorctl start footycollect-celery
+sudo supervisorctl start footycollect-celery-beat
+
+# Check status
+sudo supervisorctl status
+```
+
+## Database Backups
+
+### Manual Backup
+
+```bash
+# Backup database
+sudo -u postgres pg_dump footycollect_db > /var/www/footycollect/backups/db_backup_$(date +%Y%m%d_%H%M%S).sql
+
+# Backup with compression
+sudo -u postgres pg_dump footycollect_db | gzip > /var/www/footycollect/backups/db_backup_$(date +%Y%m%d_%H%M%S).sql.gz
+```
+
+### Automated Backups (Cron)
+
+Setup daily backups via cron:
+
+```bash
+# Edit crontab for postgres user
+sudo crontab -e -u postgres
+
+# Add daily backup at 2 AM
+0 2 * * * pg_dump footycollect_db | gzip > /var/www/footycollect/backups/db_backup_$(date +\%Y\%m\%d).sql.gz
+
+# Cleanup old backups (keep 30 days)
+0 3 * * * find /var/www/footycollect/backups/ -name "db_backup_*.sql.gz" -mtime +30 -delete
+```
+
+### Restore Backup
+
+```bash
+# Stop application
+sudo systemctl stop gunicorn
+
+# Restore database
+sudo -u postgres psql footycollect_db < /var/www/footycollect/backups/db_backup_20260302.sql
+
+# Or restore compressed backup
+gunzip < /var/www/footycollect/backups/db_backup_20260302.sql.gz | sudo -u postgres psql footycollect_db
+
+# Start application
+sudo systemctl start gunicorn
+```
+
+<Warning>
+  Always create a fresh backup before restoring from an old backup.
+</Warning>
+
+## Static and Media Files
+
+Production serves static/media from S3 or R2 (configured in `.env`).
+
+### Collect Static Files
+
+```bash
+cd /var/www/footycollect
+source venv/bin/activate
+
+# Upload to S3/R2
+python manage.py collectstatic --noinput
+
+# Clear and re-upload
+python manage.py collectstatic --noinput --clear
+
+# Verify configuration
+python manage.py verify_staticfiles
+```
+
+### Local Static Files (Not Recommended)
+
+For testing only, serve files locally via Nginx (already configured in nginx.conf:77):
+
+```nginx
+location /static/ {
+    alias /var/www/footycollect/staticfiles/;
+    expires 30d;
+    add_header Cache-Control "public, immutable";
+}
+
+location /media/ {
+    alias /var/www/footycollect/media/;
+    expires 7d;
+    add_header Cache-Control "public";
+}
+```
+
+Collect to local directory:
+
+```bash
+# Set STORAGE_BACKEND=local in .env temporarily
+python manage.py collectstatic --noinput
+
+# Ensure permissions
+sudo chown -R www-data:www-data /var/www/footycollect/staticfiles/
+sudo chown -R www-data:www-data /var/www/footycollect/media/
+```
+
+<Warning>
+  Use S3/R2 for production. Local storage doesn't scale and complicates multi-server deployments.
+</Warning>
+
+## Monitoring and Logs
+
+### Application Logs
+
+```bash
+# Gunicorn logs (via systemd)
+sudo journalctl -u gunicorn -f
+sudo journalctl -u gunicorn --since "1 hour ago"
+
+# Nginx access logs
+sudo tail -f /var/log/nginx/footycollect_access.log
+
+# Nginx error logs
+sudo tail -f /var/log/nginx/footycollect_error.log
+
+# Celery logs (if using supervisor)
+sudo tail -f /var/log/celery/worker.log
+sudo tail -f /var/log/celery/beat.log
+```
+
+### Log Rotation
+
+Log rotation is configured by setup.sh:93:
+
+```bash /etc/logrotate.d/footycollect
+/var/www/footycollect/logs/*.log {
+    daily
+    missingok
+    rotate 14
+    compress
+    delaycompress
+    notifempty
+    create 0640 footycollect footycollect
+    sharedscripts
+}
+```
+
+## Troubleshooting
+
+### Gunicorn Won't Start
+
+<AccordionGroup>
+  <Accordion title="Check service status and logs">
+    ```bash
+    sudo systemctl status gunicorn
+    sudo journalctl -u gunicorn -n 50
+    ```
+  </Accordion>
+  
+  <Accordion title="Verify virtual environment">
+    ```bash
+    ls -la /var/www/footycollect/venv/bin/gunicorn
+    
+    # Test manually
+    cd /var/www/footycollect
+    source venv/bin/activate
+    gunicorn --bind 127.0.0.1:8000 config.wsgi:application
+    ```
+  </Accordion>
+  
+  <Accordion title="Check permissions">
+    ```bash
+    ls -la /var/www/footycollect
+    # Should be owned by footycollect or www-data
+    
+    sudo chown -R www-data:www-data /var/www/footycollect
+    ```
+  </Accordion>
+  
+  <Accordion title="Verify environment file">
+    ```bash
+    # Check .env exists and is readable
+    ls -la /var/www/footycollect/.env
+    
+    # Verify DATABASE_URL
+    grep DATABASE_URL /var/www/footycollect/.env
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Nginx 502 Bad Gateway
+
+<AccordionGroup>
+  <Accordion title="Check Gunicorn is running">
+    ```bash
+    sudo systemctl status gunicorn
+    
+    # Check if listening on port 8000
+    sudo netstat -tlnp | grep 8000
+    # or
+    sudo ss -tlnp | grep 8000
+    ```
+  </Accordion>
+  
+  <Accordion title="Check Nginx configuration">
+    ```bash
+    sudo nginx -t
+    
+    # Verify proxy_pass
+    grep proxy_pass /etc/nginx/sites-available/footycollect
+    # Should be: http://127.0.0.1:8000
+    ```
+  </Accordion>
+  
+  <Accordion title="Check Nginx error logs">
+    ```bash
+    sudo tail -f /var/log/nginx/footycollect_error.log
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Database Connection Errors
+
+<AccordionGroup>
+  <Accordion title="Check PostgreSQL is running">
+    ```bash
+    sudo systemctl status postgresql
+    
+    # Test connection
+    sudo -u postgres psql -d footycollect_db -U footycollect
+    ```
+  </Accordion>
+  
+  <Accordion title="Verify DATABASE_URL">
+    ```bash
+    grep DATABASE_URL /var/www/footycollect/.env
+    # Should match: postgresql://footycollect:password@localhost:5432/footycollect_db
+    ```
+  </Accordion>
+  
+  <Accordion title="Check PostgreSQL logs">
+    ```bash
+    sudo tail -f /var/log/postgresql/postgresql-*-main.log
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Static Files Not Loading
+
+<AccordionGroup>
+  <Accordion title="Check S3/R2 configuration">
+    ```bash
+    cd /var/www/footycollect
+    source venv/bin/activate
+    python manage.py verify_staticfiles
+    ```
+  </Accordion>
+  
+  <Accordion title="Verify collectstatic ran">
+    ```bash
+    # Check last collectstatic run in deployment logs
+    grep collectstatic /var/www/footycollect/logs/*.log
+    
+    # Re-run collectstatic
+    python manage.py collectstatic --noinput
+    ```
+  </Accordion>
+  
+  <Accordion title="Check storage credentials">
+    ```bash
+    # Verify AWS/R2 credentials in .env
+    grep -E 'AWS|CLOUDFLARE' /var/www/footycollect/.env
+    
+    # Run deployment checks
+    python manage.py check --deploy
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### SSL Certificate Issues
+
+<AccordionGroup>
+  <Accordion title="Certificate not issued">
+    ```bash
+    # Check certbot logs
+    sudo tail -f /var/log/letsencrypt/letsencrypt.log
+    
+    # Verify DNS
+    dig yourdomain.com
+    
+    # Test certificate renewal
+    sudo certbot renew --dry-run
+    ```
+  </Accordion>
+  
+  <Accordion title="Port 80 blocked">
+    ```bash
+    # Ensure port 80 is open for ACME challenge
+    sudo ufw status
+    sudo ufw allow 80/tcp
+    
+    # Test from outside
+    curl http://yourdomain.com/.well-known/acme-challenge/test
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Security Hardening
+
+### Firewall Rules
+
+```bash
+# Check current rules
+sudo ufw status verbose
+
+# Allow only necessary ports
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+sudo ufw allow ssh
+sudo ufw allow 'Nginx Full'
+sudo ufw enable
+```
+
+### SSH Security
+
+```bash
+# Disable root login
+sudo nano /etc/ssh/sshd_config
+# Set: PermitRootLogin no
+
+# Use SSH keys only
+# Set: PasswordAuthentication no
+
+# Restart SSH
+sudo systemctl restart sshd
+```
+
+### Fail2ban Configuration
+
+```bash
+# Check fail2ban status
+sudo fail2ban-client status
+
+# Check Nginx jail
+sudo fail2ban-client status nginx-http-auth
+
+# View banned IPs
+sudo fail2ban-client status sshd
+```
+
+### Automatic Security Updates
+
+```bash
+# Install unattended-upgrades
+sudo apt-get install unattended-upgrades
+
+# Enable automatic updates
+sudo dpkg-reconfigure --priority=low unattended-upgrades
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Environment Setup" icon="gear" href="/deployment/environment-setup">
+    Detailed guide to all production environment variables
+  </Card>
+  <Card title="Production Checklist" icon="check" href="/deployment/production-checklist">
+    Complete the pre-deployment security checklist
+  </Card>
+</CardGroup>

@@ -1,0 +1,217 @@
+---
+title: cleanup_orphaned_photos
+description: Remove orphaned photo files from storage
+---
+
+The `cleanup_orphaned_photos` command removes photo files that are no longer referenced in the database, freeing up storage space. This is useful after deleting items or during development when photo uploads fail.
+
+## How it works
+
+The command scans photo directories and identifies files that:
+
+- Are not referenced in the `collection_photo` table
+- Are from incomplete form submissions (photos uploaded but item never created)
+- Are older than a specified threshold
+
+## Basic usage
+
+```bash
+python manage.py cleanup_orphaned_photos
+```
+
+<Warning>
+  Always use `--dry-run` first to preview what will be deleted.
+</Warning>
+
+## Arguments and options
+
+<ParamField path="--dry-run" type="boolean">
+  Preview mode - show what would be deleted without actually deleting files.
+  
+  **Example:**
+  ```bash
+  python manage.py cleanup_orphaned_photos --dry-run
+  ```
+</ParamField>
+
+<ParamField path="--verbose" type="boolean">
+  Show detailed output including each file being processed.
+  
+  **Example:**
+  ```bash
+  python manage.py cleanup_orphaned_photos --verbose
+  ```
+</ParamField>
+
+<ParamField path="--incomplete-only" type="boolean">
+  Only clean up photos from incomplete form submissions (uploaded but never attached to an item).
+  
+  **Example:**
+  ```bash
+  python manage.py cleanup_orphaned_photos --incomplete-only
+  ```
+</ParamField>
+
+<ParamField path="--older-than-hours" type="integer" default="24">
+  Only clean up photos older than specified hours (used with `--incomplete-only`).
+  
+  **Example:**
+  ```bash
+  python manage.py cleanup_orphaned_photos --incomplete-only --older-than-hours 48
+  ```
+</ParamField>
+
+## Cleanup modes
+
+### All orphaned photos
+
+Removes all photo files not referenced in the database:
+
+```bash
+python manage.py cleanup_orphaned_photos --dry-run
+python manage.py cleanup_orphaned_photos
+```
+
+**What gets deleted:**
+- Photos from deleted items
+- Manually deleted files that still exist on disk
+- Any file in `item_photos/` or `item_photos_avif/` without a database reference
+
+### Incomplete submissions only
+
+Removes photos from failed form submissions (safer option):
+
+```bash
+python manage.py cleanup_orphaned_photos --incomplete-only --older-than-hours 24
+```
+
+**What gets deleted:**
+- Photos uploaded during item creation but never attached to an item
+- Photo records with `content_type_id IS NULL`
+- Only photos older than the specified threshold (default: 24 hours)
+
+## Example workflows
+
+### Safe cleanup (recommended)
+
+<Steps>
+  <Step title="Preview changes">
+    ```bash
+    python manage.py cleanup_orphaned_photos --dry-run --verbose
+    ```
+  </Step>
+  <Step title="Review output">
+    Check the list of files to be deleted and verify they're safe to remove.
+  </Step>
+  <Step title="Run cleanup">
+    ```bash
+    python manage.py cleanup_orphaned_photos
+    ```
+  </Step>
+</Steps>
+
+### Aggressive cleanup
+
+Remove all incomplete photos older than 1 week:
+
+```bash
+python manage.py cleanup_orphaned_photos --incomplete-only --older-than-hours 168 --verbose
+```
+
+### Production deployment
+
+Run weekly via cron or Celery Beat:
+
+```bash
+# Crontab entry
+0 2 * * 0 cd /var/www/footycollect && venv/bin/python manage.py cleanup_orphaned_photos --incomplete-only
+```
+
+## Output example
+
+```
+Starting orphaned photo cleanup...
+Found 245 files referenced in database
+Found 12 orphaned files
+
+Orphaned files:
+  /media/item_photos/temp_abc123.jpg (245678 bytes)
+  /media/item_photos_avif/temp_abc123.avif (89234 bytes)
+  /media/item_photos/deleted_item_xyz.jpg (512000 bytes)
+  ...
+
+Deleted 12 files (1847912 bytes)
+```
+
+## Automatic cleanup
+
+FootyCollect includes automatic cleanup via Celery Beat periodic tasks:
+
+- **Incomplete photos** - Every 6 hours (photos from failed submissions)
+- **All orphaned photos** - Every 7 days (comprehensive cleanup)
+
+Configure these tasks with:
+
+```bash
+python manage.py setup_beat_schedule
+```
+
+See [setup_beat_schedule](/commands/setup-beat-schedule) for details.
+
+## Storage directories
+
+The command scans these directories:
+
+- `MEDIA_ROOT/item_photos/` - Original uploaded photos
+- `MEDIA_ROOT/item_photos_avif/` - AVIF-optimized versions
+
+## Database cleanup
+
+When using `--incomplete-only`, the command also deletes orphaned database records:
+
+```sql
+DELETE FROM collection_photo 
+WHERE uploaded_at < :cutoff_time 
+AND content_type_id IS NULL
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Permission denied">
+    Ensure the user running the command has write permissions on the media directory:
+    
+    ```bash
+    sudo chown -R www-data:www-data /var/www/footycollect/media
+    ```
+  </Accordion>
+  
+  <Accordion title="Files still present after cleanup">
+    Check if files are in use by another process or if the storage backend is remote (S3/R2).
+    
+    For remote storage, files are not automatically deleted from the bucket. Use the cloud provider's lifecycle policies instead.
+  </Accordion>
+  
+  <Accordion title="Database records without files">
+    If photos are referenced in the database but files are missing, use:
+    
+    ```bash
+    python manage.py shell
+    from footycollect.collection.models import Photo
+    Photo.objects.filter(image__isnull=False).count()
+    ```
+    
+    Then investigate missing files in logs.
+  </Accordion>
+</AccordionGroup>
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Photo Management" icon="image" href="/features/photo-management">
+    Learn about photo optimization and storage
+  </Card>
+  <Card title="Celery Tasks" icon="gears" href="/development/celery-tasks">
+    Background tasks including automatic cleanup
+  </Card>
+</CardGroup>

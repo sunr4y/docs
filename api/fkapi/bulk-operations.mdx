@@ -1,0 +1,523 @@
+---
+title: "Bulk Operations with FKAPI"
+description: "Learn how to perform bulk operations for importing multiple kits and user collections from FKAPI"
+---
+
+## Overview
+
+FKAPI provides bulk endpoints optimized for fetching multiple kits in a single request. FootyCollect uses these endpoints to efficiently import user collections from the Football Kit Archive.
+
+## Bulk Fetch Kits
+
+### Method
+
+Fetch multiple kits by their slugs in a single API call:
+
+```python
+from footycollect.api.client import FKAPIClient
+
+client = FKAPIClient()
+slugs = ["arsenal-home-2023-24", "liverpool-away-2023-24", "barcelona-home-2023-24"]
+kits = client.get_kits_bulk(slugs)
+```
+
+### Implementation
+
+**Source:** `client.py:486-515`
+
+```python
+def get_kits_bulk(self, slugs: list[str]) -> list[dict]:
+    """Get multiple kits by their slugs in a single request.
+    
+    Args:
+        slugs: List of kit slugs (2-30 slugs supported)
+    
+    Returns:
+        List of kit data with reduced response format:
+        - name, team (name, logo, country), season (year), brand (name, logo), main_img_url
+    """
+    if not slugs:
+        return []
+    
+    if len(slugs) < MIN_BULK_SLUGS:
+        logger.warning("Bulk endpoint requires at least %d slugs, got %d", MIN_BULK_SLUGS, len(slugs))
+        return []
+    
+    if len(slugs) > MAX_BULK_SLUGS:
+        logger.warning("Bulk endpoint supports max %d slugs, got %d. Truncating.", MAX_BULK_SLUGS, len(slugs))
+        slugs = slugs[:MAX_BULK_SLUGS]
+    
+    slugs_param = ",".join(slugs)
+    logger.info("Fetching %d kits in bulk", len(slugs))
+    result = self._get("/kits/bulk", params={"slugs": slugs_param})
+    extracted = self._extract_list_from_result(result)
+    logger.info("Bulk API extracted %d kits", len(extracted))
+    return extracted
+```
+
+### Constraints
+
+<ParamField path="MIN_BULK_SLUGS" type="int" default="2">
+  Minimum number of slugs required for bulk endpoint
+  
+  Requests with fewer than 2 slugs will return an empty list
+</ParamField>
+
+<ParamField path="MAX_BULK_SLUGS" type="int" default="30">
+  Maximum number of slugs supported per request
+  
+  Requests with more than 30 slugs will be automatically truncated
+</ParamField>
+
+**Defined in** `client.py:14-16`:
+
+```python
+# Bulk endpoint constraints
+MIN_BULK_SLUGS = 2
+MAX_BULK_SLUGS = 30
+```
+
+<Warning>
+The bulk endpoint will **truncate** slug lists exceeding 30 items. For larger imports, split your requests into multiple batches of 30 slugs or fewer.
+</Warning>
+
+### Response Format
+
+Bulk responses use a reduced format for efficiency:
+
+```json
+[
+  {
+    "name": "Arsenal Home 2023-24",
+    "team": {
+      "name": "Arsenal",
+      "logo": "https://example.com/arsenal.png",
+      "country": "England"
+    },
+    "season": {
+      "year": "2023-24"
+    },
+    "brand": {
+      "name": "Adidas",
+      "logo": "https://example.com/adidas.png"
+    },
+    "main_img_url": "https://example.com/arsenal-home-2023.jpg"
+  }
+]
+```
+
+<Note>
+Bulk responses exclude some fields present in detailed kit responses to reduce payload size. Use `get_kit_details()` if you need complete kit information.
+</Note>
+
+## User Collection Import
+
+### Management Command
+
+FootyCollect includes a Django management command for importing entire user collections from the Football Kit Archive:
+
+```bash
+python manage.py populate_user_collection <userid> [options]
+```
+
+**Source:** `footycollect/collection/management/commands/populate_user_collection.py`
+
+### Command Arguments
+
+<ParamField path="userid" type="int" required>
+  User ID from FootballKitArchive
+  
+  Example: `12345`
+</ParamField>
+
+<ParamField path="--target-username" type="string">
+  Username in your FootyCollect instance to assign items to
+  
+  Default: Creates new user based on FKA profile
+</ParamField>
+
+<ParamField path="--wait-timeout" type="int" default="120">
+  Maximum time to wait for scraping to complete (seconds)
+  
+  Default: 120 seconds
+</ParamField>
+
+<ParamField path="--page-size" type="int" default="20">
+  Number of items to fetch per page
+  
+  Default: 20
+</ParamField>
+
+<ParamField path="--dry-run" type="boolean" default="false">
+  Dry run mode - preview what would be created without actually creating objects
+  
+  Useful for testing imports
+</ParamField>
+
+<ParamField path="--json-file" type="string">
+  Path to JSON file with collection data (for testing/offline imports)
+  
+  Bypasses FKAPI calls
+</ParamField>
+
+### Usage Examples
+
+<CodeGroup>
+
+```bash Basic Import
+# Import user 12345's collection
+python manage.py populate_user_collection 12345
+```
+
+```bash Assign to Existing User
+# Import to existing user 'johndoe'
+python manage.py populate_user_collection 12345 --target-username=johndoe
+```
+
+```bash Dry Run
+# Preview what would be imported
+python manage.py populate_user_collection 12345 --dry-run
+```
+
+```bash Custom Timeout
+# Wait up to 5 minutes for scraping
+python manage.py populate_user_collection 12345 --wait-timeout=300
+```
+
+```bash Offline Import
+# Import from local JSON file
+python manage.py populate_user_collection --json-file=/path/to/collection.json
+```
+
+</CodeGroup>
+
+### How It Works
+
+The `populate_user_collection` command performs the following steps:
+
+**1. Initiate Scraping**
+
+Calls FKAPI to start scraping the user's collection:
+
+```python
+scrape_response = client.scrape_user_collection(userid)
+# Returns: {"status": "queued", "task_id": "abc123"}
+```
+
+**2. Wait for Completion**
+
+Polls FKAPI until collection data is ready:
+
+```python
+while time.time() - start_time < wait_timeout:
+    response = client.get_user_collection(userid, page=1, page_size=20, use_cache=False)
+    if response.get("status") in ("processing", "pending"):
+        time.sleep(1)
+        continue
+    if response.get("data", {}).get("entries"):
+        break
+```
+
+**3. Fetch All Pages**
+
+Iterates through paginated results:
+
+```python
+all_entries = []
+page = 1
+while True:
+    page_response = client.get_user_collection(userid, page=page, page_size=20)
+    entries = page_response.get("data", {}).get("entries", [])
+    if not entries:
+        break
+    all_entries.extend(entries)
+    page += 1
+```
+
+**4. Create Objects**
+
+For each entry, creates:
+- `Brand`, `Club`, `Season`, `TypeK`, `Competition`, `Kit` (if they don't exist)
+- `BaseItem` with metadata
+- `Jersey` with size and customization details
+- `Photo` objects from entry images
+
+**5. Download Assets**
+
+Downloads club logos, brand logos, and kit photos automatically.
+
+<Note>
+The command uses transactions to ensure atomicity - if an entry fails to import, it won't leave partial data in the database.
+</Note>
+
+### FKAPI Client Methods
+
+#### Scrape User Collection
+
+```python
+def scrape_user_collection(self, userid: int) -> dict | None:
+    """Start scraping user collection. Returns response with task_id or data."""
+    from .tasks import scrape_user_collection_task
+    
+    scrape_user_collection_task.delay(userid)
+    return {"status": "queued"}
+```
+
+**Source:** `client.py:532-537`
+
+#### Get User Collection
+
+```python
+def get_user_collection(
+    self, userid: int, page: int = 1, page_size: int = 20, *, use_cache: bool = False
+) -> dict | None:
+    """Get user collection with pagination."""
+    endpoint = f"/user-collection/{userid}"
+    params = {"page": page, "page_size": page_size}
+    return self._get(endpoint, params=params, use_cache=use_cache)
+```
+
+**Source:** `client.py:539-546`
+
+<ParamField path="page" type="int" default="1">
+  Page number (1-indexed)
+</ParamField>
+
+<ParamField path="page_size" type="int" default="20">
+  Number of entries per page
+</ParamField>
+
+<ParamField path="use_cache" type="boolean" default="false">
+  Whether to use cached results
+  
+  Typically disabled for user collection imports to ensure fresh data
+</ParamField>
+
+## Batch Processing Best Practices
+
+### Split Large Imports
+
+For collections with hundreds of kits, split into batches:
+
+```python
+def import_kits_in_batches(all_slugs: list[str]):
+    client = FKAPIClient()
+    batch_size = 30  # MAX_BULK_SLUGS
+    
+    for i in range(0, len(all_slugs), batch_size):
+        batch = all_slugs[i:i + batch_size]
+        
+        # Skip if batch too small
+        if len(batch) < 2:  # MIN_BULK_SLUGS
+            continue
+        
+        kits = client.get_kits_bulk(batch)
+        print(f"Fetched {len(kits)} kits from batch {i//batch_size + 1}")
+        
+        # Process kits...
+        time.sleep(1)  # Rate limiting
+```
+
+### Handle Failures Gracefully
+
+The `populate_user_collection` command tracks success/failure:
+
+```python
+created_count = 0
+skipped_count = 0
+error_count = 0
+
+for entry in entries:
+    try:
+        if self._process_entry(entry, user, dry_run=dry_run):
+            created_count += 1
+        else:
+            skipped_count += 1
+    except Exception as e:
+        error_count += 1
+        logger.exception("Error processing entry")
+
+print(f"Completed: {created_count} created, {skipped_count} skipped, {error_count} errors")
+```
+
+### Avoid Duplicates
+
+The command checks for existing items before creating:
+
+```python
+def _find_existing_jersey_for_user_kit(self, user: User, kit: Kit | None) -> Jersey | None:
+    """Return existing Jersey for user+kit if any."""
+    if kit:
+        return (
+            Jersey.objects.filter(base_item__user=user, kit=kit)
+            .select_related("base_item", "kit")
+            .order_by("-base_item__created_at")
+            .first()
+        )
+    return None
+```
+
+**Source:** `populate_user_collection.py:722-736`
+
+<Note>
+Existing items are skipped to prevent duplicates. Re-running the command on the same user is safe.
+</Note>
+
+## Rate Limiting for Bulk Operations
+
+Bulk operations are subject to the same rate limits as regular requests:
+
+- **Client-side**: 100 requests per minute
+- **Each bulk request counts as 1 request**, regardless of how many slugs it contains
+
+### Optimize Request Count
+
+```python
+# ❌ Bad: 30 individual requests
+for slug in slugs:
+    kit = client.get_kit_details(slug)
+
+# ✅ Good: 1 bulk request
+kits = client.get_kits_bulk(slugs)
+```
+
+## Error Handling
+
+### Empty Results
+
+```python
+kits = client.get_kits_bulk(slugs)
+
+if not kits:
+    # Could mean:
+    # - FKAPI unavailable
+    # - No kits found for slugs
+    # - Slugs list too short (< 2)
+    logger.warning("No kits returned from bulk request")
+```
+
+### Partial Failures
+
+If some slugs are invalid, FKAPI returns only valid kits:
+
+```python
+slugs = ["valid-slug-1", "invalid-slug", "valid-slug-2"]
+kits = client.get_kits_bulk(slugs)
+
+# Returns 2 kits (only valid ones)
+print(f"Requested {len(slugs)} kits, got {len(kits)} kits")
+```
+
+### Command Errors
+
+The management command provides detailed error output:
+
+```bash
+$ python manage.py populate_user_collection 12345
+
+Starting collection population for user ID: 12345
+Starting scrape for user 12345...
+Scrape response status: queued
+Scrape request accepted, waiting for completion...
+Collection ready
+Fetching page 1...
+  Fetched page 1 (20 entries, total: 20)
+Fetching page 2...
+No more entries on page 2, stopping pagination
+Found 20 entries to process
+
+[1/20] Processing entry 1 - Arsenal Home 2023-24...
+  [OK] Entry 1 processed successfully
+[2/20] Processing entry 2 - Liverpool Away 2023-24...
+  ⚠ Entry 2 skipped (already exists)
+...
+
+Completed: 15 created, 5 skipped, 0 errors
+```
+
+## Advanced Usage
+
+### Custom Pagination
+
+Adjust page size for performance tuning:
+
+```python
+# Smaller pages for faster initial response
+response = client.get_user_collection(userid, page=1, page_size=10)
+
+# Larger pages for fewer requests (max typically 50-100)
+response = client.get_user_collection(userid, page=1, page_size=50)
+```
+
+### Offline Import from JSON
+
+For testing or offline scenarios:
+
+```bash
+# Export collection from FKAPI
+curl http://fkapi/api/user-collection/12345 > collection.json
+
+# Import without hitting FKAPI
+python manage.py populate_user_collection --json-file=collection.json
+```
+
+### Selective Import
+
+Modify the command to filter entries:
+
+```python
+# Only import jerseys from specific seasons
+for entry in entries:
+    season = entry.get('kit', {}).get('season', '')
+    if season in ['2023-24', '2022-23']:
+        self._process_entry(entry, user)
+```
+
+## Performance Considerations
+
+### Database Transactions
+
+Each entry is processed in a transaction for safety:
+
+```python
+with transaction.atomic():
+    brand = self._get_or_create_brand(...)
+    club = self._get_or_create_club(...)
+    # ... create all related objects
+    
+    if dry_run:
+        transaction.set_rollback(True)  # Rollback in dry-run mode
+```
+
+### Asset Downloads
+
+Logos and photos are downloaded asynchronously to avoid blocking:
+
+```python
+try:
+    ensure_item_entity_logos_downloaded(base_item)
+except Exception:
+    logger.exception("Error downloading logos")
+    # Continue processing - logos can be retried later
+```
+
+<Warning>
+Large imports with many photos can take significant time. Use `--dry-run` first to estimate duration.
+</Warning>
+
+## Constraints Summary
+
+| Constraint | Value | Behavior |
+|------------|-------|----------|
+| **MIN_BULK_SLUGS** | 2 | Requests with < 2 slugs return empty list |
+| **MAX_BULK_SLUGS** | 30 | Requests with > 30 slugs are truncated |
+| **Rate Limit** | 100/min | Requests exceeding limit return cached data |
+| **Request Timeout** | 60s | Requests exceeding timeout are retried |
+| **Max Retries** | 3 | Failed requests retry with exponential backoff |
+| **Cache TTL** | 3600s | Cached responses expire after 1 hour |
+
+## Next Steps
+
+- Review [FKAPI overview](/api/fkapi/overview) for architecture and configuration
+- Learn about [searching kits](/api/fkapi/search-kits) for individual kit queries
+- Explore the [API reference](/api/reference) for endpoint details

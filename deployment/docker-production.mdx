@@ -1,0 +1,675 @@
+---
+title: Docker Production Deployment
+description: Deploy FootyCollect with Docker Compose for a complete production stack
+---
+
+Deploy FootyCollect to production using Docker Compose with a complete stack including Django, PostgreSQL, Redis, Traefik (reverse proxy with SSL), Celery workers, and AWS CLI for backups.
+
+## Overview
+
+The Docker production deployment uses `docker-compose.production.yml` to orchestrate all services:
+
+- **Django + Gunicorn**: Application server
+- **PostgreSQL**: Database with persistent volumes
+- **Redis**: Cache and Celery message broker
+- **Traefik**: Reverse proxy with automatic SSL via Let's Encrypt
+- **Celery Worker**: Background task processing
+- **Celery Beat**: Scheduled task scheduler
+- **Flower**: Celery monitoring (optional)
+- **AWS CLI**: Database backup automation
+
+<Note>
+  All static and media files are served from S3/R2 in production. The `collectstatic` command runs automatically during container startup.
+</Note>
+
+## Prerequisites
+
+<Steps>
+  <Step title="Install Docker">
+    Install Docker Engine and Docker Compose v2+:
+    
+    ```bash
+    # Ubuntu/Debian
+    curl -fsSL https://get.docker.com -o get-docker.sh
+    sudo sh get-docker.sh
+    sudo usermod -aG docker $USER
+    
+    # Verify installation
+    docker --version
+    docker compose version
+    ```
+  </Step>
+  
+  <Step title="Domain and DNS">
+    - Register a domain name
+    - Point DNS A records to your server's IP:
+      - `yourdomain.com` → `your.server.ip`
+      - `www.yourdomain.com` → `your.server.ip`
+  </Step>
+  
+  <Step title="Firewall Configuration">
+    Open required ports:
+    
+    ```bash
+    sudo ufw allow ssh
+    sudo ufw allow 80/tcp    # HTTP (Traefik)
+    sudo ufw allow 443/tcp   # HTTPS (Traefik)
+    sudo ufw enable
+    ```
+  </Step>
+</Steps>
+
+## Deployment
+
+### 1. Clone Repository
+
+```bash
+cd /opt
+sudo git clone https://github.com/sunr4y/FootyCollect.git footycollect
+cd footycollect
+```
+
+<Warning>
+  Build context must be the **repository root**. All Docker Compose commands must run from `/opt/footycollect`.
+</Warning>
+
+### 2. Configure Environment Files
+
+Create production environment files by copying the template:
+
+```bash
+# Create environment directories
+mkdir -p .envs/.production
+
+# Copy template (reference)
+cp deploy/env.example .envs/.production/env.reference
+```
+
+Create two environment files:
+
+<Tabs>
+  <Tab title=".envs/.production/.django">
+    Django application environment variables:
+    
+    ```bash .envs/.production/.django
+    # Django Settings
+    DJANGO_SECRET_KEY=your-secret-key-here
+    DJANGO_DEBUG=False
+    DJANGO_ALLOWED_HOSTS=yourdomain.com,www.yourdomain.com
+    DJANGO_ADMIN_URL=admin/
+    
+    # Security
+    DJANGO_SECURE_SSL_REDIRECT=True
+    DJANGO_SECURE_HSTS_INCLUDE_SUBDOMAINS=True
+    DJANGO_SECURE_HSTS_PRELOAD=True
+    
+    # Redis (use service name from docker-compose)
+    REDIS_URL=redis://redis:6379/0
+    
+    # Email (SendGrid)
+    SENDGRID_API_KEY=your-sendgrid-api-key
+    DJANGO_DEFAULT_FROM_EMAIL=noreply@yourdomain.com
+    
+    # Sentry
+    SENTRY_DSN=your-sentry-dsn
+    SENTRY_ENVIRONMENT=production
+    
+    # Storage (AWS S3)
+    STORAGE_BACKEND=aws
+    DJANGO_AWS_ACCESS_KEY_ID=your-access-key
+    DJANGO_AWS_SECRET_ACCESS_KEY=your-secret-key
+    DJANGO_AWS_STORAGE_BUCKET_NAME=your-bucket
+    DJANGO_AWS_S3_REGION_NAME=us-east-1
+    
+    # Or Cloudflare R2
+    # STORAGE_BACKEND=r2
+    # CLOUDFLARE_ACCESS_KEY_ID=your-access-key
+    # CLOUDFLARE_SECRET_ACCESS_KEY=your-secret-key
+    # CLOUDFLARE_BUCKET_NAME=your-bucket
+    # CLOUDFLARE_R2_ENDPOINT_URL=https://account-id.r2.cloudflarestorage.com
+    
+    # FKAPI (optional)
+    FKA_API_IP=your-fkapi-server
+    API_KEY=your-api-key
+    
+    # Content Security Policy
+    DJANGO_CSP_ENABLED=True
+    DJANGO_CSP_IMG_SRC='self', data:, blob:, https://www.gravatar.com, https://cdn.footballkitarchive.com, https://your-bucket.s3.amazonaws.com
+    ```
+    
+    <Note>
+      Generate SECRET_KEY: `python -c 'from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())'`
+    </Note>
+  </Tab>
+  
+  <Tab title=".envs/.production/.postgres">
+    PostgreSQL database environment variables:
+    
+    ```bash .envs/.production/.postgres
+    # PostgreSQL
+    POSTGRES_HOST=postgres
+    POSTGRES_PORT=5432
+    POSTGRES_DB=footycollect_db
+    POSTGRES_USER=footycollect
+    POSTGRES_PASSWORD=your-secure-db-password
+    
+    # Also set DATABASE_URL for Django (matches above)
+    DATABASE_URL=postgresql://footycollect:your-secure-db-password@postgres:5432/footycollect_db
+    ```
+    
+    <Warning>
+      Use a strong password for `POSTGRES_PASSWORD`. This password secures your entire database.
+    </Warning>
+  </Tab>
+</Tabs>
+
+See the [environment setup guide](/deployment/environment-setup) for detailed variable descriptions.
+
+### 3. Configure Traefik
+
+Create Traefik configuration for SSL certificates:
+
+```bash
+mkdir -p compose/production/traefik
+```
+
+Edit `compose/production/traefik/traefik.yml` and update the domain and email:
+
+```yaml compose/production/traefik/traefik.yml
+log:
+  level: INFO
+
+entryPoints:
+  web:
+    address: ":80"
+    http:
+      redirections:
+        entryPoint:
+          to: web-secure
+          scheme: https
+  web-secure:
+    address: ":443"
+
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      email: your-email@yourdomain.com
+      storage: /etc/traefik/acme/acme.json
+      httpChallenge:
+        entryPoint: web
+
+http:
+  routers:
+    web-secure-router:
+      rule: "Host(`yourdomain.com`) || Host(`www.yourdomain.com`)"
+      entryPoints:
+        - web-secure
+      service: django
+      tls:
+        certResolver: letsencrypt
+
+  services:
+    django:
+      loadBalancer:
+        servers:
+          - url: http://django:5000
+
+providers:
+  file:
+    filename: /etc/traefik/traefik.yml
+    watch: true
+```
+
+### 4. Build Images
+
+Build all production Docker images:
+
+```bash
+# Build from repository root
+docker compose -f docker-compose.production.yml build
+```
+
+This builds:
+- `footycollect_production_django` (multi-stage build from compose/production/django/Dockerfile)
+- `footycollect_production_postgres`
+- `footycollect_production_traefik`
+- `footycollect_production_celeryworker`
+- `footycollect_production_celerybeat`
+- `footycollect_production_flower`
+
+### 5. Start Services
+
+```bash
+# Start all services in detached mode
+docker compose -f docker-compose.production.yml up -d
+
+# View logs
+docker compose -f docker-compose.production.yml logs -f
+
+# View specific service logs
+docker compose -f docker-compose.production.yml logs -f django
+```
+
+<Note>
+  On first startup, Django will automatically:
+  1. Wait for PostgreSQL to be ready
+  2. Run database migrations
+  3. Collect static files to S3/R2
+  4. Start Gunicorn
+</Note>
+
+### 6. Create Superuser
+
+Create an admin user:
+
+```bash
+docker compose -f docker-compose.production.yml run --rm django python manage.py createsuperuser
+```
+
+### 7. Verify Deployment
+
+Check that all services are running:
+
+```bash
+# Check service status
+docker compose -f docker-compose.production.yml ps
+
+# Test health endpoint
+curl https://yourdomain.com/health/
+
+# Test ready endpoint (includes DB check)
+curl https://yourdomain.com/ready/
+
+# Run Django deployment checks
+docker compose -f docker-compose.production.yml run --rm django python manage.py check --deploy
+```
+
+## Service Management
+
+### Starting and Stopping
+
+```bash
+# Start all services
+docker compose -f docker-compose.production.yml up -d
+
+# Stop all services
+docker compose -f docker-compose.production.yml down
+
+# Restart specific service
+docker compose -f docker-compose.production.yml restart django
+
+# Stop and remove volumes (WARNING: deletes data)
+docker compose -f docker-compose.production.yml down -v
+```
+
+### Viewing Logs
+
+```bash
+# All services
+docker compose -f docker-compose.production.yml logs -f
+
+# Django only
+docker compose -f docker-compose.production.yml logs -f django
+
+# Celery worker
+docker compose -f docker-compose.production.yml logs -f celeryworker
+
+# Last 100 lines
+docker compose -f docker-compose.production.yml logs --tail=100 django
+```
+
+### Running Management Commands
+
+```bash
+# Run migrations
+docker compose -f docker-compose.production.yml run --rm django python manage.py migrate
+
+# Collect static files
+docker compose -f docker-compose.production.yml run --rm django python manage.py collectstatic --noinput
+
+# Create superuser
+docker compose -f docker-compose.production.yml run --rm django python manage.py createsuperuser
+
+# Django shell
+docker compose -f docker-compose.production.yml run --rm django python manage.py shell
+
+# Custom management command
+docker compose -f docker-compose.production.yml run --rm django python manage.py your_command
+```
+
+## Database Management
+
+### Backups
+
+The `awscli` service can backup PostgreSQL to S3:
+
+```bash
+# Manual backup to S3
+docker compose -f docker-compose.production.yml run --rm awscli /backup
+
+# Local backup
+docker compose -f docker-compose.production.yml exec postgres backup
+
+# List backups
+docker compose -f docker-compose.production.yml exec postgres backups
+```
+
+Backups are stored in the `production_postgres_data_backups` volume.
+
+### Restore
+
+```bash
+# List available backups
+docker compose -f docker-compose.production.yml exec postgres backups
+
+# Restore from backup
+docker compose -f docker-compose.production.yml exec postgres restore backup_2026_03_02.sql.gz
+```
+
+<Warning>
+  Restoring a backup will overwrite the current database. Always create a backup before restoring.
+</Warning>
+
+## Static and Media Files
+
+Static and media files are served from S3/R2 in production.
+
+### Collect Static Files
+
+```bash
+# Collect and upload to S3/R2
+docker compose -f docker-compose.production.yml run --rm django python manage.py collectstatic --noinput
+
+# Clear existing files before collecting
+docker compose -f docker-compose.production.yml run --rm django python manage.py collectstatic --noinput --clear
+
+# Verify static files configuration
+docker compose -f docker-compose.production.yml run --rm django python manage.py verify_staticfiles
+```
+
+### Storage Configuration
+
+Configure storage backend in `.envs/.production/.django`:
+
+<AccordionGroup>
+  <Accordion title="AWS S3">
+    ```bash
+    STORAGE_BACKEND=aws
+    DJANGO_AWS_ACCESS_KEY_ID=your-access-key
+    DJANGO_AWS_SECRET_ACCESS_KEY=your-secret-key
+    DJANGO_AWS_STORAGE_BUCKET_NAME=your-bucket
+    DJANGO_AWS_S3_REGION_NAME=us-east-1
+    DJANGO_AWS_S3_CUSTOM_DOMAIN=cdn.yourdomain.com  # Optional CDN
+    ```
+  </Accordion>
+  
+  <Accordion title="Cloudflare R2">
+    ```bash
+    STORAGE_BACKEND=r2
+    CLOUDFLARE_ACCESS_KEY_ID=your-access-key
+    CLOUDFLARE_SECRET_ACCESS_KEY=your-secret-key
+    CLOUDFLARE_BUCKET_NAME=your-bucket
+    CLOUDFLARE_R2_ENDPOINT_URL=https://account-id.r2.cloudflarestorage.com
+    CLOUDFLARE_R2_CUSTOM_DOMAIN=cdn.yourdomain.com  # Optional
+    ```
+    
+    <Note>
+      R2 requires CORS configuration if serving fonts or assets from a custom domain. See deploy/r2-cors-wrangler.json in the repository.
+    </Note>
+  </Accordion>
+</AccordionGroup>
+
+## Updating the Application
+
+<Steps>
+  <Step title="Pull Latest Code">
+    ```bash
+    cd /opt/footycollect
+    sudo git pull origin main
+    ```
+  </Step>
+  
+  <Step title="Rebuild Images">
+    ```bash
+    docker compose -f docker-compose.production.yml build
+    ```
+  </Step>
+  
+  <Step title="Run Migrations">
+    ```bash
+    docker compose -f docker-compose.production.yml run --rm django python manage.py migrate
+    ```
+  </Step>
+  
+  <Step title="Collect Static Files">
+    ```bash
+    docker compose -f docker-compose.production.yml run --rm django python manage.py collectstatic --noinput
+    ```
+  </Step>
+  
+  <Step title="Restart Services">
+    ```bash
+    docker compose -f docker-compose.production.yml up -d
+    ```
+  </Step>
+  
+  <Step title="Verify Deployment">
+    ```bash
+    # Check health
+    curl https://yourdomain.com/health/
+    
+    # Run deployment checks
+    docker compose -f docker-compose.production.yml run --rm django python manage.py check --deploy
+    ```
+  </Step>
+</Steps>
+
+## Monitoring
+
+### Flower (Celery Monitoring)
+
+Access Flower at `https://yourdomain.com:5555` (if port 5555 is exposed).
+
+<Warning>
+  Secure Flower with authentication in production. Do not expose it publicly without protection.
+</Warning>
+
+### Container Health
+
+```bash
+# Check container health
+docker compose -f docker-compose.production.yml ps
+
+# View resource usage
+docker stats
+
+# Inspect specific container
+docker inspect footycollect_production_django
+```
+
+### Application Health
+
+```bash
+# Health check endpoint
+curl https://yourdomain.com/health/
+
+# Readiness check (includes DB)
+curl https://yourdomain.com/ready/
+
+# Django checks
+docker compose -f docker-compose.production.yml run --rm django python manage.py check --deploy
+```
+
+## Troubleshooting
+
+### Container Won't Start
+
+<AccordionGroup>
+  <Accordion title="Check logs">
+    ```bash
+    docker compose -f docker-compose.production.yml logs -f django
+    docker compose -f docker-compose.production.yml logs -f postgres
+    ```
+  </Accordion>
+  
+  <Accordion title="Database connection errors">
+    Verify PostgreSQL environment variables match in both files:
+    - `.envs/.production/.postgres`
+    - `.envs/.production/.django` (DATABASE_URL)
+    
+    Check PostgreSQL is ready:
+    ```bash
+    docker compose -f docker-compose.production.yml exec postgres pg_isready
+    ```
+  </Accordion>
+  
+  <Accordion title="Environment file errors">
+    Ensure both environment files exist:
+    ```bash
+    ls -la .envs/.production/
+    # Should show: .django and .postgres
+    ```
+    
+    Verify no syntax errors:
+    ```bash
+    cat .envs/.production/.django | grep -v '^#' | grep -v '^$'
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### SSL Certificate Issues
+
+<AccordionGroup>
+  <Accordion title="Certificate not issued">
+    Check Traefik logs:
+    ```bash
+    docker compose -f docker-compose.production.yml logs -f traefik
+    ```
+    
+    Verify DNS is pointing to your server:
+    ```bash
+    dig yourdomain.com
+    ```
+    
+    Ensure port 80 is accessible for HTTP challenge:
+    ```bash
+    curl http://yourdomain.com/.well-known/acme-challenge/test
+    ```
+  </Accordion>
+  
+  <Accordion title="Certificate renewal failed">
+    Remove existing certificates and restart:
+    ```bash
+    docker compose -f docker-compose.production.yml down
+    sudo rm -rf compose/production/traefik/acme/acme.json
+    docker compose -f docker-compose.production.yml up -d
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Static Files Not Loading
+
+<AccordionGroup>
+  <Accordion title="Check S3/R2 credentials">
+    Verify storage configuration:
+    ```bash
+    docker compose -f docker-compose.production.yml run --rm django python manage.py verify_staticfiles
+    ```
+    
+    Test S3/R2 connectivity:
+    ```bash
+    docker compose -f docker-compose.production.yml run --rm django python manage.py check --deploy
+    ```
+  </Accordion>
+  
+  <Accordion title="CORS errors (R2)">
+    If using Cloudflare R2 with custom domain, configure CORS:
+    
+    See deploy/r2-cors-wrangler.json for CORS policy. Apply with:
+    ```bash
+    npx wrangler r2 bucket cors set your-bucket --file deploy/r2-cors-wrangler.json
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Performance Issues
+
+<AccordionGroup>
+  <Accordion title="Increase Gunicorn workers">
+    Edit compose/production/django/start:
+    ```bash
+    gunicorn --workers 4 --bind 0.0.0.0:5000 config.wsgi:application
+    ```
+    
+    Recommended workers: `(2 * CPU cores) + 1`
+  </Accordion>
+  
+  <Accordion title="Check resource limits">
+    ```bash
+    docker stats
+    ```
+    
+    Add resource limits in docker-compose.production.yml:
+    ```yaml
+    services:
+      django:
+        deploy:
+          resources:
+            limits:
+              cpus: '2'
+              memory: 2G
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Security Hardening
+
+<Warning>
+  Complete the [production checklist](/deployment/production-checklist) before deploying to production.
+</Warning>
+
+### Firewall Rules
+
+```bash
+# Allow only necessary ports
+sudo ufw default deny incoming
+sudo ufw default allow outgoing
+sudo ufw allow ssh
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw enable
+```
+
+### Docker Security
+
+```bash
+# Run containers as non-root (already configured in Dockerfiles)
+# Enable Docker security scanning
+docker scan footycollect_production_django
+
+# Keep Docker updated
+sudo apt-get update
+sudo apt-get install docker-ce docker-ce-cli containerd.io
+```
+
+### Environment Security
+
+- Never commit `.envs/.production/` to version control
+- Use strong passwords for `POSTGRES_PASSWORD` and `SECRET_KEY`
+- Rotate `SECRET_KEY` and database credentials regularly
+- Restrict access to environment files:
+  ```bash
+  chmod 600 .envs/.production/.django
+  chmod 600 .envs/.production/.postgres
+  ```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Environment Setup" icon="gear" href="/deployment/environment-setup">
+    Complete guide to all production environment variables
+  </Card>
+  <Card title="Production Checklist" icon="check" href="/deployment/production-checklist">
+    Verify all security and configuration settings
+  </Card>
+</CardGroup>

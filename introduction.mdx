@@ -1,0 +1,140 @@
+---
+title: Introduction
+description: A Django-based web application for managing your football memorabilia collection
+---
+
+<img
+  className="block dark:hidden"
+  src="https://raw.githubusercontent.com/sunr4y/FootyCollect/main/media/light_logo_footy_collect.svg"
+  alt="FootyCollect Logo"
+/>
+<img
+  className="hidden dark:block"
+  src="https://raw.githubusercontent.com/sunr4y/FootyCollect/main/media/main_logo_footy_collect.svg"
+  alt="FootyCollect Logo"
+/>
+
+FootyCollect is a comprehensive Django web application for managing your football memorabilia collection. It integrates with the Football Kit Archive via [FKAPI](https://github.com/sunr4y/fkapi) to search and add kits by club, season, and competition—making it easy to catalog and organize items in your collection.
+
+## Get started
+
+<CardGroup cols={2}>
+  <Card
+    title="Quickstart"
+    icon="rocket"
+    href="/quickstart"
+  >
+    Install FootyCollect and create your first collection item
+  </Card>
+  <Card
+    title="Live demo"
+    icon="globe"
+    href="/demo"
+  >
+    Try FootyCollect without installing anything
+  </Card>
+  <Card
+    title="API reference"
+    icon="code"
+    href="/api/introduction"
+  >
+    Explore the complete RESTful API documentation
+  </Card>
+  <Card
+    title="Deployment"
+    icon="server"
+    href="/deployment/overview"
+  >
+    Deploy FootyCollect to production
+  </Card>
+</CardGroup>
+
+## Key features
+
+### Multi-item type support
+
+Manage various types of football memorabilia including jerseys, shorts, outerwear, tracksuits, and more. Each item type has specific fields tailored to its characteristics.
+
+### FKAPI integration
+
+Search and add kits from the Football Kit Archive via [FKAPI](https://github.com/sunr4y/fkapi). Optional but core to the intended workflow—you can search by club, season, and competition, then create items with pre-filled data including colors, design patterns, competitions, and logos.
+
+<Note>
+  Without FKAPI running, you can still use FootyCollect for manual entry and photo management. Deploy or run FKAPI alongside FootyCollect to enable the search-and-add workflow.
+</Note>
+
+### Photo management
+
+Upload and organize multiple photos for each item. Photos are automatically optimized and converted to AVIF format for better performance. The first photo becomes the main display image.
+
+### Advanced search and filtering
+
+Filter your collection by club, season, brand, competition, item type, condition, and more. Tag items for custom organization and use the search functionality to quickly find specific pieces.
+
+### User profiles and privacy
+
+Create personal collections with privacy controls. Mark items as private to keep them visible only to you, or share them publicly with the community.
+
+### RESTful API
+
+Complete API for programmatic access to your collection. All endpoints are documented with OpenAPI/Swagger specification via drf-spectacular.
+
+## Technology stack
+
+FootyCollect is built with modern, production-ready technologies:
+
+- **Backend**: Django 5.0+ with Django REST Framework
+- **Database**: PostgreSQL
+- **Cache**: Redis
+- **Task Queue**: Celery with Celery Beat for scheduled tasks
+- **Frontend**: Django Templates with Cotton Components, Bootstrap 5, Alpine.js, HTMX
+- **API Documentation**: drf-spectacular (OpenAPI/Swagger)
+
+## Architecture highlights
+
+### Service layer pattern
+
+The application uses a service layer to encapsulate business logic, keeping views thin and models focused on data representation. Services handle item creation, photo processing, external API integration, and collection operations.
+
+### Multi-table inheritance
+
+Item types (Jersey, Shorts, Outerwear, Tracksuit) use Django's Multi-Table Inheritance pattern with a `BaseItem` model containing common fields and specific models for item-type-specific fields.
+
+```python
+class BaseItem(models.Model):
+    item_type = models.CharField(max_length=20, choices=ITEM_TYPE_CHOICES)
+    name = models.CharField(max_length=200)
+    user = models.ForeignKey("users.User", on_delete=models.CASCADE)
+    brand = models.ForeignKey(Brand, on_delete=models.CASCADE)
+    club = models.ForeignKey(Club, on_delete=models.CASCADE)
+    season = models.ForeignKey(Season, on_delete=models.CASCADE)
+    # ... more common fields
+
+class Jersey(models.Model):
+    base_item = models.OneToOneField(BaseItem, on_delete=models.CASCADE)
+    size = models.ForeignKey(Size, on_delete=models.CASCADE)
+    is_fan_version = models.BooleanField(default=True)
+    has_nameset = models.BooleanField(default=False)
+    player_name = models.CharField(max_length=100, blank=True)
+    number = models.PositiveIntegerField(null=True, blank=True)
+    # ... more jersey-specific fields
+```
+
+## Resources
+
+<CardGroup cols={2}>
+  <Card
+    title="GitHub repository"
+    icon="github"
+    href="https://github.com/sunr4y/FootyCollect"
+  >
+    View source code and contribute
+  </Card>
+  <Card
+    title="FKAPI"
+    icon="database"
+    href="https://github.com/sunr4y/fkapi"
+  >
+    Football Kit Archive API integration
+  </Card>
+</CardGroup>
